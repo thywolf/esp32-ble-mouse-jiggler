@@ -3,10 +3,11 @@
 #include <BleConnectionStatus.h>
 #include <BleMouse.h>
 
-BleMouse bleMouse("Razer Orochi LE", "Razer", 50);
 int batteryLevel = 50;
 const unsigned long interval = 30000;
 unsigned long previousMillis = 0;
+
+BleMouse bleMouse("Razer Orochi LE", "Razer", batteryLevel);
 
 int getRandomDirection();
 int getBatteryLevel();
