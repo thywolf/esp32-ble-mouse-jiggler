@@ -15,6 +15,34 @@ unsigned long loopwait;
 std::string mouseName;
 std::string mouseManu;
 
+enum APPState {
+  APP_BLE,
+  APP_SERIAL
+};
+
+APPState appState = APP_BLE;
+bool wasConnected = false;
+
+struct Button {
+  const uint8_t PIN;
+  bool pressed;
+};
+
+Button bootButton = {0, false};
+
+//variables to keep track of the timing of recent interrupts
+unsigned long button_time = 0;  
+unsigned long last_button_time = 0; 
+
+void IRAM_ATTR isr() {
+  button_time = millis();
+  if (button_time - last_button_time > 250)
+  {
+    bootButton.pressed = true;
+    last_button_time = button_time;
+  }
+}
+
 BleMouse *bleMouse;
 
 int getRandomDirection();
@@ -22,10 +50,7 @@ int getBatteryLevel();
 void loadPreferences();
 int savePreferences(int /*argc*/ , char ** /*argv*/ );
 int getConfig(int /*argc*/ , char ** /*argv*/ );
-int setPeriod(int argc, char **argv);
-int setDelay(int argc, char **argv);
-int setName(int argc, char **argv);
-int setManu(int argc, char **argv);
+int setConfig(int argc, char **argv);
 int doReboot(int /*argc*/ , char ** /*argv*/);
 
 void setup() {
@@ -38,16 +63,14 @@ void setup() {
   preferences.begin("ble-mouse", false);
   loadPreferences();
 
+  // button interrupt setup
+  attachInterrupt(bootButton.PIN, isr, FALLING);
+
   // Shell setup
-  Serial.begin(115200);
-  shell.attach(Serial);
-  shell.addCommand(F("show"), getConfig);
-  shell.addCommand(F("save"), savePreferences);
-  shell.addCommand(F("setperiod"), setPeriod);
-  shell.addCommand(F("setdelay"), setDelay);
-  shell.addCommand(F("setname"), setName);
-  shell.addCommand(F("setmanu"), setManu);
-  shell.addCommand(F("reboot"), doReboot);
+  shell.addCommand(F("get \t- Displays current configuration"), getConfig);
+  shell.addCommand(F("set \t- Sets parameter to a value"), setConfig);
+  shell.addCommand(F("save \t- Saves current configuration"), savePreferences);
+  shell.addCommand(F("exit \t- Reboots the device"), doReboot);
   shell.setTokenizer(quotedTokenizer);
 
   //Mouse setup
@@ -55,16 +78,54 @@ void setup() {
   bleMouse->begin();
 }
 
-void loop() {
-  shell.executeIfInput();
-  if(bleMouse->isConnected()) {
-    if (millis() - previousMillis >= interval) {
-      bleMouse->setBatteryLevel(getBatteryLevel());
-      bleMouse->move(getRandomDirection(), getRandomDirection());
-      previousMillis = millis();
-    }
+void switchState() {
+  switch(appState) {
+    case APP_BLE: // switching Serial ON
+      // Init Serial
+      Serial.begin(115200);
+      // Attach shell
+      shell.attach(Serial);
+      shell.execute("help");
+      appState = APP_SERIAL;
+      break;
+    case APP_SERIAL: // switching Serial OFF
+      // Stop Serial
+      shell.println("Goodbye...");
+      shell.flush();
+      Serial.end();
+      appState = APP_BLE;
+      break;
   }
-  delay(loopwait);
+}
+
+void loop() {
+  // Serial loop
+  if(appState == APP_SERIAL) {
+    shell.executeIfInput();
+  }
+
+  // BLE loop
+  if(appState == APP_BLE) {
+    if(bleMouse->isConnected()) {
+      if (millis() - previousMillis >= interval) {
+        bleMouse->setBatteryLevel(getBatteryLevel());
+        bleMouse->move(getRandomDirection(), getRandomDirection());
+        previousMillis = millis();
+        if (!wasConnected) wasConnected = true;
+      }
+    } else {
+      if (millis() - previousMillis >= interval) {
+        if (wasConnected) ESP.restart();
+      }
+    }
+    delay(loopwait);
+  }
+
+  // Button loop
+  if (bootButton.pressed) {
+    switchState();
+    bootButton.pressed = false;
+  }
 }
 
 int getRandomDirection() {
@@ -98,16 +159,10 @@ int savePreferences(int /*argc*/ , char ** /*argv*/) {
 }
 
 int getConfig(int /*argc*/ , char ** /*argv*/) {
-  shell.print("Movement period: ");
-  shell.print(interval);
-  shell.println("ms");
-  shell.print("Loop delay: ");
-  shell.print(loopwait);
-  shell.println("ms");
-  shell.print("Mouse name: ");
-  shell.println(mouseName.c_str());
-  shell.print("Mouse manufacturer: ");
-  shell.println(mouseManu.c_str());
+  shell.printf("Movement interval [period]: %d ms\n", interval);
+  shell.printf("Reactor delay [delay]: %d ms\n", loopwait);
+  shell.printf("Mouse name [name]: %s\n", mouseName.c_str());
+  shell.printf("Mouse manufacturer [manu]: %s\n", mouseManu.c_str());
   return EXIT_SUCCESS;
 }
 
@@ -116,44 +171,37 @@ int doReboot(int /*argc*/ , char ** /*argv*/) {
   return EXIT_SUCCESS;
 }
 
-int setPeriod(int argc, char **argv)
+int setConfig(int argc, char **argv)
 {
-  if (argc != 2) {
-      shell.println("Bad argument count");
-      return -1;
+  if (argc != 3) {
+    shell.println("Bad argument count.");
+  } else {
+    if (strcmp(argv[1], "period") == 0) {
+      interval = strtoul(argv[2], NULL, 10);
+      return EXIT_SUCCESS;
+    } else if (strcmp(argv[1], "delay") == 0) {
+      loopwait = strtoul(argv[2], NULL, 10);
+      return EXIT_SUCCESS;
+    } else if (strcmp(argv[1], "name") == 0) {
+      mouseName = argv[2];
+      return EXIT_SUCCESS;
+    } else if (strcmp(argv[1], "manu") == 0) {
+      mouseManu = argv[2];
+      return EXIT_SUCCESS;
+    } else {
+      shell.println("Unrecognized parameter.");
+    }
   }
-  interval = strtoul(argv[1], NULL, 10);
-  shell.println("OK");
-  return EXIT_SUCCESS;
-}
 
-int setDelay(int argc, char **argv)
-{
-  if (argc != 2) {
-      shell.println("Bad argument count");
-      return -1;
-  }
-  loopwait = strtoul(argv[1], NULL, 10);
-  shell.println("OK");
-  return EXIT_SUCCESS;
-}
-
-int setName(int argc, char **argv) { 
-  if (argc != 2) {
-    shell.println("Bad argument count");
-    return -1;
-  }
-  mouseName = argv[1];
-  shell.println("OK");
-  return EXIT_SUCCESS;
-}
-
-int setManu(int argc, char **argv) { 
-  if (argc != 2) {
-    shell.println("Bad argument count");
-    return -1;
-  }
-  mouseManu = argv[1];
-  shell.println("OK");
-  return EXIT_SUCCESS;
+  shell.println();
+  shell.println("Usage: set <parameter> <value>");
+  shell.println("  <parameter>: name of the parameter to set. Available parameters:");
+  shell.println("    period - Interval between movements (in ms)");
+  shell.println("     delay - Reactor loop delay (in ms)");
+  shell.println("      name - Advertised device name (string)");
+  shell.println("      manu - Advertised device manufacturer (string)");
+  shell.println();
+  shell.println("Example:");
+  shell.println("  set name \"Generic BLE Mouse\"");
+  return -1;
 }
