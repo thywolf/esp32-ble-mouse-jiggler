@@ -140,8 +140,8 @@ int getBatteryLevel() {
 
 int loadPreferences(int /*argc*/ , char ** /*argv*/) {
   period = preferences.getULong("period", 15000);
-  mouseName = std::string(preferences.getString("name", "Razer Orochi LE").c_str());
-  mouseManu = std::string(preferences.getString("manu", "Razer").c_str());
+  mouseName = std::string(preferences.getString("name", "Wobbly BLE Mouse").c_str());
+  mouseManu = std::string(preferences.getString("manu", "ESP32").c_str());
   return EXIT_SUCCESS;
 }
 
