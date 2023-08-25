@@ -10,13 +10,15 @@ Preferences preferences;
 
 int batteryLevel = 50;
 unsigned long previousMillis = 0;
-unsigned long interval;
+unsigned long period;
 std::string mouseName;
 std::string mouseManu;
 
 enum APPState {
   APP_BLE,
-  APP_SERIAL
+  APP_SERIAL,
+  APP_SERIAL_OPEN,
+  APP_SERIAL_CLOSE
 };
 
 APPState appState = APP_BLE;
@@ -24,21 +26,25 @@ bool wasConnected = false;
 
 struct Button {
   const uint8_t PIN;
-  bool pressed;
+  unsigned long button_time;  
+  unsigned long last_button_time; 
 };
 
-Button bootButton = {0, false};
-
-//variables to keep track of the timing of recent interrupts
-unsigned long button_time = 0;  
-unsigned long last_button_time = 0; 
+Button bootButton = {0, 0, 0};
 
 void IRAM_ATTR isr() {
-  button_time = millis();
-  if (button_time - last_button_time > 250)
+  bootButton.button_time = millis();
+  if (bootButton.button_time - bootButton.last_button_time > 250)
   {
-    bootButton.pressed = true;
-    last_button_time = button_time;
+    switch(appState) {
+      case APP_SERIAL:
+        appState = APP_SERIAL_CLOSE;
+        break;
+      case APP_BLE:
+        appState = APP_SERIAL_OPEN;
+        break;
+    }
+    bootButton.last_button_time = bootButton.button_time;
   }
 }
 
@@ -77,9 +83,28 @@ void setup() {
   bleMouse->begin();
 }
 
-void switchState() {
+void loop() {
   switch(appState) {
-    case APP_BLE: // switching Serial ON
+    case APP_SERIAL: // serial is switched on, mouse not updating
+      shell.executeIfInput();
+      break;
+    case APP_BLE: // serial is switched off, mouse is updating
+      if(appState == APP_BLE) {
+        if(bleMouse->isConnected()) {
+          if (millis() - previousMillis >= period) {
+            bleMouse->setBatteryLevel(getBatteryLevel());
+            bleMouse->move(getRandomDirection(), getRandomDirection());
+            previousMillis = millis();
+            if (!wasConnected) wasConnected = true;
+          }
+        } else {
+          if (millis() - previousMillis >= period) {
+            if (wasConnected) ESP.restart();
+          }
+        }
+      }
+      break;
+    case APP_SERIAL_OPEN: // switching Serial ON
       // Init Serial
       Serial.begin(115200);
       // Attach shell
@@ -87,43 +112,13 @@ void switchState() {
       shell.execute("help");
       appState = APP_SERIAL;
       break;
-    case APP_SERIAL: // switching Serial OFF
+    case APP_SERIAL_CLOSE: // switching Serial OFF
       // Stop Serial
       shell.println("Goodbye...");
       shell.flush();
       Serial.end();
       appState = APP_BLE;
       break;
-  }
-}
-
-void loop() {
-  switch(appState) {
-    case APP_SERIAL:
-      shell.executeIfInput();
-      break;
-    case APP_BLE:
-      if(appState == APP_BLE) {
-        if(bleMouse->isConnected()) {
-          if (millis() - previousMillis >= interval) {
-            bleMouse->setBatteryLevel(getBatteryLevel());
-            bleMouse->move(getRandomDirection(), getRandomDirection());
-            previousMillis = millis();
-            if (!wasConnected) wasConnected = true;
-          }
-        } else {
-          if (millis() - previousMillis >= interval) {
-            if (wasConnected) ESP.restart();
-          }
-        }
-      }
-      break;
-  }
-
-  // Button loop
-  if (bootButton.pressed) {
-    switchState();
-    bootButton.pressed = false;
   }
 }
 
@@ -143,22 +138,22 @@ int getBatteryLevel() {
 }
 
 void loadPreferences() {
-  interval = preferences.getULong("period", 15000);
+  period = preferences.getULong("period", 15000);
   mouseName = std::string(preferences.getString("name", "Razer Orochi LE").c_str());
   mouseManu = std::string(preferences.getString("manu", "Razer").c_str());
 }
 
 int savePreferences(int /*argc*/ , char ** /*argv*/) {
-  preferences.putULong("period", interval);
+  preferences.putULong("period", period);
   preferences.putString("name", mouseName.c_str());
   preferences.putString("manu", mouseManu.c_str());
   return EXIT_SUCCESS;
 }
 
 int getConfig(int /*argc*/ , char ** /*argv*/) {
-  shell.printf("Movement interval [period]: %d ms\n", interval);
-  shell.printf("Mouse name [name]: %s\n", mouseName.c_str());
-  shell.printf("Mouse manufacturer [manu]: %s\n", mouseManu.c_str());
+  shell.printf("Movement [period]: %d ms\n", period);
+  shell.printf("Mouse [name]: %s\n", mouseName.c_str());
+  shell.printf("Mouse [manu]facturer: %s\n", mouseManu.c_str());
   return EXIT_SUCCESS;
 }
 
@@ -173,7 +168,7 @@ int setConfig(int argc, char **argv)
     shell.println("Bad argument count.");
   } else {
     if (strcmp(argv[1], "period") == 0) {
-      interval = strtoul(argv[2], NULL, 10);
+      period = strtoul(argv[2], NULL, 10);
       return EXIT_SUCCESS;
     } else if (strcmp(argv[1], "name") == 0) {
       mouseName = argv[2];
@@ -188,10 +183,10 @@ int setConfig(int argc, char **argv)
 
   shell.println();
   shell.println("Usage: set <parameter> <value>");
-  shell.println("  <parameter>: name of the parameter to set. Available parameters:");
-  shell.println("    period - Interval between movements (in ms)");
-  shell.println("      name - Advertised device name (string)");
-  shell.println("      manu - Advertised device manufacturer (string)");
+  shell.println("Parameters: name of the parameter to set. Available parameters:");
+  shell.println("  period - Time between movements (in ms)");
+  shell.println("    name - Advertised device name (string)");
+  shell.println("    manu - Advertised device manufacturer (string)");
   shell.println();
   shell.println("Example:");
   shell.println("  set name \"Generic BLE Mouse\"");
