@@ -52,7 +52,7 @@ BleMouse *bleMouse;
 
 int getRandomDirection();
 int getBatteryLevel();
-void loadPreferences();
+int loadPreferences(int /*argc*/ , char ** /*argv*/);
 int savePreferences(int /*argc*/ , char ** /*argv*/ );
 int getConfig(int /*argc*/ , char ** /*argv*/ );
 int setConfig(int argc, char **argv);
@@ -66,7 +66,7 @@ void setup() {
 
   // Preferences setup
   preferences.begin("ble-mouse", false);
-  loadPreferences();
+  loadPreferences(0, NULL);
 
   // button interrupt setup
   attachInterrupt(bootButton.PIN, isr, FALLING);
@@ -74,6 +74,7 @@ void setup() {
   // Shell setup
   shell.addCommand(F("get \t- Displays current configuration"), getConfig);
   shell.addCommand(F("set \t- Sets parameter to a value"), setConfig);
+  shell.addCommand(F("load \t- Loads stored configuration"), loadPreferences);
   shell.addCommand(F("save \t- Saves current configuration"), savePreferences);
   shell.addCommand(F("exit \t- Reboots the device"), doReboot);
   shell.setTokenizer(quotedTokenizer);
@@ -137,10 +138,11 @@ int getBatteryLevel() {
   return batteryLevel;
 }
 
-void loadPreferences() {
+int loadPreferences(int /*argc*/ , char ** /*argv*/) {
   period = preferences.getULong("period", 15000);
   mouseName = std::string(preferences.getString("name", "Razer Orochi LE").c_str());
   mouseManu = std::string(preferences.getString("manu", "Razer").c_str());
+  return EXIT_SUCCESS;
 }
 
 int savePreferences(int /*argc*/ , char ** /*argv*/) {
@@ -168,25 +170,37 @@ int setConfig(int argc, char **argv)
     shell.println("Bad argument count.");
   } else {
     if (strcmp(argv[1], "period") == 0) {
-      period = strtoul(argv[2], NULL, 10);
-      return EXIT_SUCCESS;
+      if (strtoul(argv[2], NULL, 10) >= 100 && strchr(argv[2], '-') == nullptr) {
+        period = strtoul(argv[2], NULL, 10);
+        return EXIT_SUCCESS;
+      } else {
+        shell.printf("Invalid period. Min value: 100.\n", argv[2]);
+      }
     } else if (strcmp(argv[1], "name") == 0) {
-      mouseName = argv[2];
-      return EXIT_SUCCESS;
+      if (strlen(argv[2]) >= 3 && strlen(argv[2]) <= 29) {
+        mouseName = argv[2];
+        return EXIT_SUCCESS;
+      } else {
+        shell.println("Invalid name length. Allowed 3-29 chars.");
+      }
     } else if (strcmp(argv[1], "manu") == 0) {
-      mouseManu = argv[2];
-      return EXIT_SUCCESS;
+      if (strlen(argv[2]) >= 3 && strlen(argv[2]) <= 29) {
+        mouseManu = argv[2];
+        return EXIT_SUCCESS;
+      } else {
+        shell.println("Invalid manufacturer length. Allowed 3-29 chars.");
+      }
     } else {
-      shell.println("Unrecognized parameter.");
+      shell.printf("Unrecognized parameter '%s'.\n", argv[1]);
     }
   }
 
   shell.println();
   shell.println("Usage: set <parameter> <value>");
-  shell.println("Parameters: name of the parameter to set. Available parameters:");
-  shell.println("  period - Time between movements (in ms)");
-  shell.println("    name - Advertised device name (string)");
-  shell.println("    manu - Advertised device manufacturer (string)");
+  shell.println("Parameters:");
+  shell.println("  period - Time between movements (in ms, min. 100)");
+  shell.println("    name - Advertised device name (string, 3-29 chars)");
+  shell.println("    manu - Advertised device manufacturer (string, 3-29 chars)");
   shell.println();
   shell.println("Example:");
   shell.println("  set name \"Generic BLE Mouse\"");
