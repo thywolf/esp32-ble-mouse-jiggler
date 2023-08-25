@@ -11,7 +11,6 @@ Preferences preferences;
 int batteryLevel = 50;
 unsigned long previousMillis = 0;
 unsigned long interval;
-unsigned long loopwait;
 std::string mouseName;
 std::string mouseManu;
 
@@ -99,26 +98,26 @@ void switchState() {
 }
 
 void loop() {
-  // Serial loop
-  if(appState == APP_SERIAL) {
-    shell.executeIfInput();
-  }
-
-  // BLE loop
-  if(appState == APP_BLE) {
-    if(bleMouse->isConnected()) {
-      if (millis() - previousMillis >= interval) {
-        bleMouse->setBatteryLevel(getBatteryLevel());
-        bleMouse->move(getRandomDirection(), getRandomDirection());
-        previousMillis = millis();
-        if (!wasConnected) wasConnected = true;
+  switch(appState) {
+    case APP_SERIAL:
+      shell.executeIfInput();
+      break;
+    case APP_BLE:
+      if(appState == APP_BLE) {
+        if(bleMouse->isConnected()) {
+          if (millis() - previousMillis >= interval) {
+            bleMouse->setBatteryLevel(getBatteryLevel());
+            bleMouse->move(getRandomDirection(), getRandomDirection());
+            previousMillis = millis();
+            if (!wasConnected) wasConnected = true;
+          }
+        } else {
+          if (millis() - previousMillis >= interval) {
+            if (wasConnected) ESP.restart();
+          }
+        }
       }
-    } else {
-      if (millis() - previousMillis >= interval) {
-        if (wasConnected) ESP.restart();
-      }
-    }
-    delay(loopwait);
+      break;
   }
 
   // Button loop
@@ -145,14 +144,12 @@ int getBatteryLevel() {
 
 void loadPreferences() {
   interval = preferences.getULong("period", 15000);
-  loopwait = preferences.getULong("delay", 2000);
   mouseName = std::string(preferences.getString("name", "Razer Orochi LE").c_str());
   mouseManu = std::string(preferences.getString("manu", "Razer").c_str());
 }
 
 int savePreferences(int /*argc*/ , char ** /*argv*/) {
   preferences.putULong("period", interval);
-  preferences.putULong("delay", loopwait);
   preferences.putString("name", mouseName.c_str());
   preferences.putString("manu", mouseManu.c_str());
   return EXIT_SUCCESS;
@@ -160,7 +157,6 @@ int savePreferences(int /*argc*/ , char ** /*argv*/) {
 
 int getConfig(int /*argc*/ , char ** /*argv*/) {
   shell.printf("Movement interval [period]: %d ms\n", interval);
-  shell.printf("Reactor delay [delay]: %d ms\n", loopwait);
   shell.printf("Mouse name [name]: %s\n", mouseName.c_str());
   shell.printf("Mouse manufacturer [manu]: %s\n", mouseManu.c_str());
   return EXIT_SUCCESS;
@@ -179,9 +175,6 @@ int setConfig(int argc, char **argv)
     if (strcmp(argv[1], "period") == 0) {
       interval = strtoul(argv[2], NULL, 10);
       return EXIT_SUCCESS;
-    } else if (strcmp(argv[1], "delay") == 0) {
-      loopwait = strtoul(argv[2], NULL, 10);
-      return EXIT_SUCCESS;
     } else if (strcmp(argv[1], "name") == 0) {
       mouseName = argv[2];
       return EXIT_SUCCESS;
@@ -197,7 +190,6 @@ int setConfig(int argc, char **argv)
   shell.println("Usage: set <parameter> <value>");
   shell.println("  <parameter>: name of the parameter to set. Available parameters:");
   shell.println("    period - Interval between movements (in ms)");
-  shell.println("     delay - Reactor loop delay (in ms)");
   shell.println("      name - Advertised device name (string)");
   shell.println("      manu - Advertised device manufacturer (string)");
   shell.println();
