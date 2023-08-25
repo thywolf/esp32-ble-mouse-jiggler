@@ -2,7 +2,7 @@
 
 A configurable Bluetooth mouse jiggler written for az-delivery-devkit-v4 using t-vk/ESP32 BLE Mouse@^0.3.1 and philj404/SimpleSerialShell@^1.0.0 libraries.
 
-Configuration can be done via serial USB (115200, disabled by default, but can be enabled/disabled by pressing the Boot button on the board during runtime).
+Configuration can be done via serial USB (115200, not active by default, but can be turned on/off during runtime by pressing the Boot button on the board).
 
 Commands available are:
 ```
