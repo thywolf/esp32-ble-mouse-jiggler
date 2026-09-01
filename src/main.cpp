@@ -90,8 +90,7 @@ void loop() {
       shell.executeIfInput();
       break;
     case APP_BLE: // serial is switched off, mouse is updating
-      if(appState == APP_BLE) {
-        if(bleMouse->isConnected()) {
+      if(bleMouse->isConnected()) {
           if (millis() - previousMillis >= period) {
             bleMouse->setBatteryLevel(getBatteryLevel());
             bleMouse->move(getRandomDirection(), getRandomDirection());
@@ -103,7 +102,6 @@ void loop() {
             if (wasConnected) ESP.restart();
           }
         }
-      }
       break;
     case APP_SERIAL_OPEN: // switching Serial ON
       // Init Serial
@@ -153,7 +151,7 @@ int savePreferences(int /*argc*/ , char ** /*argv*/) {
 }
 
 int getConfig(int /*argc*/ , char ** /*argv*/) {
-  shell.printf("Movement [period]: %d ms\n", period);
+  shell.printf("Movement [period]: %lu ms\n", period);
   shell.printf("Mouse [name]: %s\n", mouseName.c_str());
   shell.printf("Mouse [manu]facturer: %s\n", mouseManu.c_str());
   return EXIT_SUCCESS;
@@ -170,11 +168,13 @@ int setConfig(int argc, char **argv)
     shell.println("Bad argument count.");
   } else {
     if (strcmp(argv[1], "period") == 0) {
-      if (strtoul(argv[2], NULL, 10) >= 100 && strchr(argv[2], '-') == nullptr) {
-        period = strtoul(argv[2], NULL, 10);
+      char *endptr = nullptr;
+      unsigned long value = strtoul(argv[2], &endptr, 10);
+      if (endptr != argv[2] && *endptr == '\0' && value >= 100) {
+        period = value;
         return EXIT_SUCCESS;
       } else {
-        shell.printf("Invalid period. Min value: 100.\n", argv[2]);
+        shell.printf("Invalid period '%s'. Min value: 100.\n", argv[2]);
       }
     } else if (strcmp(argv[1], "name") == 0) {
       if (strlen(argv[2]) >= 3 && strlen(argv[2]) <= 29) {
