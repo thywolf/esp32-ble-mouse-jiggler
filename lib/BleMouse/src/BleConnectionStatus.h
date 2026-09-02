@@ -20,6 +20,7 @@ public:
   void onConnect(BLEServer* pServer);
   void onDisconnect(BLEServer* pServer);
   BLECharacteristic* inputMouse;
+  BLEServer* pServer = 0;
 };
 
 #endif // CONFIG_BT_ENABLED

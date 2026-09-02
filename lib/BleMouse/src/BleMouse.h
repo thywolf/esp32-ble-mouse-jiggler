@@ -43,6 +43,7 @@ public:
   void setAdvertiseWhileConnected(bool enable);
   void startAdvertising(void);
   void stopAdvertising(void);
+  void disconnectAll(void);
   void setBatteryLevel(uint8_t level);
   uint8_t batteryLevel;
   std::string deviceManufacturer;

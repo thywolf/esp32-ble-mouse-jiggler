@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include "esp32-hal-cpu.h"
+#include <esp_sleep.h>
 #include <BleConnectionStatus.h>
 #include <BleMouse.h>
 #include <Preferences.h>
@@ -8,9 +9,10 @@
 
 Preferences preferences;
 
-int batteryLevel = 50;
+unsigned long bootMillis = 0;
 unsigned long previousMillis = 0;
 unsigned long period;
+unsigned long sleepMinutes;
 std::string mouseName;
 std::string mouseManu;
 
@@ -75,8 +77,12 @@ int getConfig(int /*argc*/ , char ** /*argv*/ );
 int setConfig(int argc, char **argv);
 int doReboot(int /*argc*/ , char ** /*argv*/);
 void setPairingMode(bool enable);
+void enterDeepSleep(void);
 
 void setup() {
+  // every timer (movement, sleep) is counted from this point
+  bootMillis = millis();
+
   // Board setup
   setCpuFrequencyMhz(80);
   int seedValue = analogRead(A0);
@@ -99,7 +105,7 @@ void setup() {
   shell.setTokenizer(quotedTokenizer);
 
   //Mouse setup
-  bleMouse = new BleMouse(mouseName, mouseManu, batteryLevel);
+  bleMouse = new BleMouse(mouseName, mouseManu, 100);
   // sync the advertising gate with the boot grace window before any host
   // can connect
   pairingGraceStart = millis();
@@ -108,6 +114,9 @@ void setup() {
 }
 
 void loop() {
+  if (millis() - bootMillis >= sleepMinutes * 60000UL) {
+    enterDeepSleep();
+  }
   if (pairingGracePending && millis() - pairingGraceStart >= PAIRING_GRACE_MS) {
     pairingGracePending = false;
     if (pairingMode) {
@@ -167,6 +176,23 @@ int getRandomDirection() {
   return randomNumber - 1;
 }
 
+void enterDeepSleep(void) {
+  bleMouse->disconnectAll();
+  delay(250); // give the hosts a moment to register the disconnect
+  esp_deep_sleep_start();
+}
+
+int getBatteryLevel() {
+  // simulated battery: drains linearly from 100% at boot to 0% when the
+  // sleep timer runs out
+  unsigned long elapsed = millis() - bootMillis;
+  unsigned long total = sleepMinutes * 60000UL;
+  if (elapsed >= total) {
+    return 0;
+  }
+  return 100 - (int)(((uint64_t)elapsed * 100ULL) / total);
+}
+
 void setPairingMode(bool enable) {
   pairingGracePending = false;
   pairingMode = enable;
@@ -182,18 +208,12 @@ void setPairingMode(bool enable) {
   }
 }
 
-int getBatteryLevel() {
-  int randomNumber = random(61)+20;
-  if(batteryLevel<=randomNumber) {
-    batteryLevel=batteryLevel+1;
-  } else {
-    batteryLevel=batteryLevel-1;
-  }
-  return batteryLevel;
-}
-
 int loadPreferences(int /*argc*/ , char ** /*argv*/) {
   period = preferences.getULong("period", 15000);
+  sleepMinutes = preferences.getULong("sleep", 480);
+  if (sleepMinutes < 5 || sleepMinutes > 43200) {
+    sleepMinutes = 480;
+  }
   mouseName = std::string(preferences.getString("name", "Wobbly BLE Mouse").c_str());
   mouseManu = std::string(preferences.getString("manu", "ESP32").c_str());
   return EXIT_SUCCESS;
@@ -201,6 +221,7 @@ int loadPreferences(int /*argc*/ , char ** /*argv*/) {
 
 int savePreferences(int /*argc*/ , char ** /*argv*/) {
   preferences.putULong("period", period);
+  preferences.putULong("sleep", sleepMinutes);
   preferences.putString("name", mouseName.c_str());
   preferences.putString("manu", mouseManu.c_str());
   return EXIT_SUCCESS;
@@ -208,6 +229,7 @@ int savePreferences(int /*argc*/ , char ** /*argv*/) {
 
 int getConfig(int /*argc*/ , char ** /*argv*/) {
   shell.printf("Movement [period]: %lu ms\n", period);
+  shell.printf("Deep [sleep]: %lu min\n", sleepMinutes);
   shell.printf("Mouse [name]: %s\n", mouseName.c_str());
   shell.printf("Mouse [manu]facturer: %s\n", mouseManu.c_str());
   shell.printf("Connected [hosts]: %d\n", bleMouse->getConnectedHosts());
@@ -220,19 +242,40 @@ int doReboot(int /*argc*/ , char ** /*argv*/) {
   return EXIT_SUCCESS;
 }
 
+bool parseUnsigned(const char* str, unsigned long& out) {
+  // reject empty input and signs: strtoul would wrap negatives into huge values
+  if (str == 0 || *str == '\0' || *str == '-' || *str == '+') {
+    return false;
+  }
+  char* endptr = nullptr;
+  unsigned long value = strtoul(str, &endptr, 10);
+  if (endptr == str || *endptr != '\0') {
+    return false;
+  }
+  out = value;
+  return true;
+}
+
 int setConfig(int argc, char **argv)
 {
   if (argc != 3) {
     shell.println("Bad argument count.");
   } else {
     if (strcmp(argv[1], "period") == 0) {
-      char *endptr = nullptr;
-      unsigned long value = strtoul(argv[2], &endptr, 10);
-      if (endptr != argv[2] && *endptr == '\0' && value >= 100) {
+      unsigned long value;
+      if (parseUnsigned(argv[2], value) && value >= 100) {
         period = value;
         return EXIT_SUCCESS;
       } else {
         shell.printf("Invalid period '%s'. Min value: 100.\n", argv[2]);
+      }
+    } else if (strcmp(argv[1], "sleep") == 0) {
+      unsigned long value;
+      if (parseUnsigned(argv[2], value) && value >= 5 && value <= 43200) {
+        sleepMinutes = value;
+        return EXIT_SUCCESS;
+      } else {
+        shell.printf("Invalid sleep '%s'. Allowed values: 5-43200 minutes.\n", argv[2]);
       }
     } else if (strcmp(argv[1], "name") == 0) {
       if (strlen(argv[2]) >= 3 && strlen(argv[2]) <= 29) {
@@ -257,6 +300,7 @@ int setConfig(int argc, char **argv)
   shell.println("Usage: set <parameter> <value>");
   shell.println("Parameters:");
   shell.println("  period - Time between movements (in ms, min. 100)");
+  shell.println("   sleep - Time until deep sleep (in minutes, 5-43200)");
   shell.println("    name - Advertised device name (string, 3-29 chars)");
   shell.println("    manu - Advertised device manufacturer (string, 3-29 chars)");
   shell.println();

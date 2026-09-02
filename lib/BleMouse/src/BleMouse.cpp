@@ -148,6 +148,18 @@ void BleMouse::stopAdvertising(void) {
   BLEDevice::getAdvertising()->stop();
 }
 
+void BleMouse::disconnectAll(void) {
+  if (this->connectionStatus->pServer == 0) {
+    return;
+  }
+  BLEServer* pServer = this->connectionStatus->pServer;
+  std::map<uint16_t, conn_status_t> peers = pServer->getPeerDevices(false);
+  for (std::map<uint16_t, conn_status_t>::iterator it = peers.begin(); it != peers.end(); ++it) {
+    pServer->disconnect(it->first);
+  }
+  this->stopAdvertising();
+}
+
 void BleMouse::setBatteryLevel(uint8_t level) {
   this->batteryLevel = level;
   if (hid != 0)
@@ -159,6 +171,7 @@ void BleMouse::taskServer(void* pvParameter) {
   BLEDevice::init(bleMouseInstance->deviceName);
   BLEServer *pServer = BLEDevice::createServer();
   pServer->setCallbacks(bleMouseInstance->connectionStatus);
+  bleMouseInstance->connectionStatus->pServer = pServer;
 
   bleMouseInstance->hid = new BLEHIDDevice(pServer);
   bleMouseInstance->inputMouse = bleMouseInstance->hid->inputReport(0); // <-- input REPORTID from report map
