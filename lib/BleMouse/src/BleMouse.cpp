@@ -136,6 +136,18 @@ int BleMouse::getConnectedHosts(void) {
   return this->connectionStatus->connectionCount;
 }
 
+void BleMouse::setAdvertiseWhileConnected(bool enable) {
+  this->connectionStatus->advertiseWhileConnected = enable;
+}
+
+void BleMouse::startAdvertising(void) {
+  BLEDevice::getAdvertising()->start();
+}
+
+void BleMouse::stopAdvertising(void) {
+  BLEDevice::getAdvertising()->stop();
+}
+
 void BleMouse::setBatteryLevel(uint8_t level) {
   this->batteryLevel = level;
   if (hid != 0)

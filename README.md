@@ -14,7 +14,7 @@ Written for the AZ-Delivery DevKit V4 (ESP32-WROOM-32) using PlatformIO, with a 
 
 The mouse can stay connected to up to 4 laptops simultaneously (a limit of the ESP32 Bluetooth stack). All connected hosts receive the cursor movements and battery updates, so every paired machine is kept awake at the same time.
 
-Pair each laptop as described below. Advertising restarts automatically after disconnects and reboots, so any paired laptop can (re)connect at any time. The `get` command displays the number of currently connected hosts.
+Pair each laptop as described below; while hosts are connected, enable pairing mode to make the device discoverable for the next one. Whenever the device is idle, advertising runs automatically, so paired laptops reconnect after disconnects, reboots, or being out of range. The `get` command displays the number of currently connected hosts.
 
 ## Building and flashing
 
@@ -41,13 +41,24 @@ The device boots straight into mouse mode and starts advertising. Pair it in you
   trust <device-mac>
   ```
 
-You can pair additional laptops while others are connected — repeat the steps on each machine, up to 4 in total. Once paired, hosts reconnect automatically after a reboot or after being out of range.
+You can pair additional laptops while others are connected — repeat the steps on each machine, up to 4 in total. Once paired, hosts reconnect automatically whenever the device is advertising.
 
-If the mouse doesn't show up in the scan list, toggle Bluetooth on the host and search again, or briefly press the reset button on the board.
+### Pairing mode
+
+By default, the device stops advertising while it is connected to at least one host: new hosts can't see it while it is already serving one. First-time pairing needs no gesture — a freshly booted device with no connections is advertising.
+
+To pair an additional laptop while others are connected, use pairing mode:
+
+- Press and hold the **Boot** button for 3 seconds → pairing mode **on**: the device stays discoverable even while hosts are connected.
+- Press and hold it again for 3 seconds → pairing mode **off**.
+
+Pairing mode is not saved across reboots; after a power cycle it is off. A short press of the **Boot** button (under 3 seconds) toggles the serial console instead. The current state is shown by the `get` command (`Pairing [mode]`).
+
+If the mouse doesn't show up in the scan list, enable pairing mode with a long press of **Boot**, toggle Bluetooth on the host and search again, or briefly press the reset button on the board.
 
 ## Configuration
 
-Configuration is done over a serial console (115200 baud) that is off by default: press the **Boot** button on the board to switch it on or off at any time. While the console is open, mouse movements are paused.
+Configuration is done over a serial console (115200 baud) that is off by default: a short press of the **Boot** button on the board switches it on or off at any time (a 3-second hold toggles pairing mode instead — see Pairing). While the console is open, mouse movements are paused.
 
 Commands available are:
 ```

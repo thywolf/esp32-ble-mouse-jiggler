@@ -23,27 +23,39 @@ enum APPState {
 
 APPState appState = APP_BLE;
 
+const unsigned long LONG_PRESS_MS = 3000;
+
 struct Button {
   const uint8_t PIN;
-  unsigned long button_time;  
-  unsigned long last_button_time; 
+  unsigned long last_button_time;
 };
 
-Button bootButton = {0, 0, 0};
+Button bootButton = {0, 0};
+
+// Button state shared with the ISR. Holding GPIO0 while the firmware runs is
+// just a press; entering the bootloader requires holding it across a reset.
+volatile bool buttonHeld = false;
+volatile unsigned long pressStart = 0;
+volatile bool longPressHandled = false;
+volatile bool shortPressPending = false;
+
+bool pairingMode = false;
 
 void IRAM_ATTR isr() {
-  bootButton.button_time = millis();
-  if (bootButton.button_time - bootButton.last_button_time > 250)
-  {
-    switch(appState) {
-      case APP_SERIAL:
-        appState = APP_SERIAL_CLOSE;
-        break;
-      case APP_BLE:
-        appState = APP_SERIAL_OPEN;
-        break;
+  unsigned long now = millis();
+  if (now - bootButton.last_button_time < 50) {
+    return;
+  }
+  bootButton.last_button_time = now;
+  if (digitalRead(bootButton.PIN) == LOW) {
+    buttonHeld = true;
+    pressStart = now;
+    longPressHandled = false;
+  } else {
+    buttonHeld = false;
+    if (!longPressHandled) {
+      shortPressPending = true;
     }
-    bootButton.last_button_time = bootButton.button_time;
   }
 }
 
@@ -56,6 +68,7 @@ int savePreferences(int /*argc*/ , char ** /*argv*/ );
 int getConfig(int /*argc*/ , char ** /*argv*/ );
 int setConfig(int argc, char **argv);
 int doReboot(int /*argc*/ , char ** /*argv*/);
+void setPairingMode(bool enable);
 
 void setup() {
   // Board setup
@@ -68,7 +81,8 @@ void setup() {
   loadPreferences(0, NULL);
 
   // button interrupt setup
-  attachInterrupt(bootButton.PIN, isr, FALLING);
+  pinMode(bootButton.PIN, INPUT_PULLUP);
+  attachInterrupt(bootButton.PIN, isr, CHANGE);
 
   // Shell setup
   shell.addCommand(F("get \t- Displays current configuration"), getConfig);
@@ -84,6 +98,23 @@ void setup() {
 }
 
 void loop() {
+  if (buttonHeld && !longPressHandled && millis() - pressStart >= LONG_PRESS_MS) {
+    longPressHandled = true;
+    setPairingMode(!pairingMode);
+  }
+  if (shortPressPending) {
+    shortPressPending = false;
+    switch(appState) {
+      case APP_SERIAL:
+        appState = APP_SERIAL_CLOSE;
+        break;
+      case APP_BLE:
+        appState = APP_SERIAL_OPEN;
+        break;
+      default:
+        break;
+    }
+  }
   switch(appState) {
     case APP_SERIAL: // serial is switched on, mouse not updating
       shell.executeIfInput();
@@ -120,6 +151,20 @@ int getRandomDirection() {
   return randomNumber - 1;
 }
 
+void setPairingMode(bool enable) {
+  pairingMode = enable;
+  bleMouse->setAdvertiseWhileConnected(enable);
+  if (enable) {
+    bleMouse->startAdvertising();
+  } else if (bleMouse->getConnectedHosts() > 0) {
+    bleMouse->stopAdvertising();
+  }
+  if (appState == APP_SERIAL) {
+    shell.println(enable ? "Pairing mode on - the device stays discoverable while hosts are connected."
+                         : "Pairing mode off - the device is only discoverable while no host is connected.");
+  }
+}
+
 int getBatteryLevel() {
   int randomNumber = random(61)+20;
   if(batteryLevel<=randomNumber) {
@@ -149,6 +194,7 @@ int getConfig(int /*argc*/ , char ** /*argv*/) {
   shell.printf("Mouse [name]: %s\n", mouseName.c_str());
   shell.printf("Mouse [manu]facturer: %s\n", mouseManu.c_str());
   shell.printf("Connected [hosts]: %d\n", bleMouse->getConnectedHosts());
+  shell.printf("Pairing [mode]: %s\n", pairingMode ? "on" : "off");
   return EXIT_SUCCESS;
 }
 

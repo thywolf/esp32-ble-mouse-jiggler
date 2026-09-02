@@ -14,6 +14,9 @@ public:
   // Written from the Bluetooth callback task, read from the Arduino loop task
   volatile int connectionCount = 0;
   volatile bool connected = false;
+  // When false, advertising is only started again once the last host
+  // disconnects, hiding the device from new hosts while it is serving one
+  volatile bool advertiseWhileConnected = true;
   void onConnect(BLEServer* pServer);
   void onDisconnect(BLEServer* pServer);
   BLECharacteristic* inputMouse;

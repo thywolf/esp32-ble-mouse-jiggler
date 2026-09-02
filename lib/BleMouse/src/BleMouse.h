@@ -40,6 +40,9 @@ public:
   bool isPressed(uint8_t b = MOUSE_LEFT); // check LEFT by default
   bool isConnected(void);
   int getConnectedHosts(void);
+  void setAdvertiseWhileConnected(bool enable);
+  void startAdvertising(void);
+  void stopAdvertising(void);
   void setBatteryLevel(uint8_t level);
   uint8_t batteryLevel;
   std::string deviceManufacturer;

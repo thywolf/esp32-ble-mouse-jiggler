@@ -11,7 +11,9 @@ void BleConnectionStatus::onConnect(BLEServer* pServer)
   desc->setNotifications(true);
   // Advertising stops on connect; restart it so further hosts can connect
   // while this one stays connected (multi-host support)
-  pServer->getAdvertising()->start();
+  if (this->advertiseWhileConnected) {
+    pServer->getAdvertising()->start();
+  }
 }
 
 void BleConnectionStatus::onDisconnect(BLEServer* pServer)
@@ -25,6 +27,9 @@ void BleConnectionStatus::onDisconnect(BLEServer* pServer)
     desc->setNotifications(false);
   }
   // Neither the library nor the framework restarts advertising on disconnect;
-  // do it here so remaining or bonded hosts can (re)connect
-  pServer->getAdvertising()->start();
+  // do it here so remaining or bonded hosts can (re)connect. With pairing
+  // gated, wait until the last host is gone.
+  if (this->advertiseWhileConnected || this->connectionCount == 0) {
+    pServer->getAdvertising()->start();
+  }
 }
