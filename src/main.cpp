@@ -40,6 +40,7 @@ volatile bool buttonHeld = false;
 volatile unsigned long pressStart = 0;
 volatile bool longPressHandled = false;
 volatile bool shortPressPending = false;
+volatile bool suppressNextRelease = false;
 
 // Pairing mode starts on for a grace window after boot so all already-paired
 // hosts can reconnect at once (legacy advertising stops on the first
@@ -61,7 +62,11 @@ void IRAM_ATTR isr() {
     longPressHandled = false;
   } else {
     buttonHeld = false;
-    if (!longPressHandled) {
+    if (suppressNextRelease) {
+      // release of a press that spans the boot (deep sleep wake) is not a
+      // config press
+      suppressNextRelease = false;
+    } else if (!longPressHandled) {
       shortPressPending = true;
     }
   }
@@ -93,6 +98,9 @@ void setup() {
 
   // button interrupt setup
   pinMode(bootButton.PIN, INPUT_PULLUP);
+  // waking from deep sleep via the Boot button leaves the pin low while the
+  // app boots; swallow that press so its release doesn't open the console
+  suppressNextRelease = digitalRead(bootButton.PIN) == LOW;
   attachInterrupt(bootButton.PIN, isr, CHANGE);
 
   // Shell setup
