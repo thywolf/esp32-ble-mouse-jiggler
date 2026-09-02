@@ -1,0 +1,9 @@
+{
+  "name": "BleMouse",
+  "version": "0.3.1+multihost",
+  "description": "BLE HID mouse library for ESP32, vendored fork of t-vk/ESP32-BLE-Mouse v0.3.1 (MIT) patched to support simultaneous connections from multiple BLE hosts",
+  "keywords": "bluetooth, ble, hid, mouse, esp32",
+  "license": "MIT",
+  "frameworks": "arduino",
+  "platforms": "espressif32"
+}

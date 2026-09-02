@@ -1,6 +1,12 @@
 **ESP32 BLE Mouse Jiggler**
 
-A configurable Bluetooth mouse jiggler written for az-delivery-devkit-v4 using t-vk/ESP32 BLE Mouse@^0.3.1 and philj404/SimpleSerialShell@^1.0.0 libraries.
+A configurable Bluetooth mouse jiggler written for az-delivery-devkit-v4 using a vendored fork of t-vk/ESP32 BLE Mouse (in `lib/BleMouse`, based on 0.3.1) and philj404/SimpleSerialShell@^1.0.0 libraries.
+
+## Multi-host support
+
+The mouse can stay connected to up to 4 laptops simultaneously (a limit of the ESP32 Bluetooth stack). All connected hosts receive the cursor movements and battery updates, so every paired machine is kept awake at the same time. Pair each laptop normally; after a disconnect or reboot, advertising continues/restarts automatically and any paired laptop can (re)connect.
+
+The `get` command displays the number of currently connected hosts.
 
 Configuration can be done via serial USB (115200, not active by default, but can be turned on/off during runtime by pressing the Boot button on the board).
 

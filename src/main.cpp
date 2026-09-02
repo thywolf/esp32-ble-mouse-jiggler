@@ -22,7 +22,6 @@ enum APPState {
 };
 
 APPState appState = APP_BLE;
-bool wasConnected = false;
 
 struct Button {
   const uint8_t PIN;
@@ -95,11 +94,6 @@ void loop() {
             bleMouse->setBatteryLevel(getBatteryLevel());
             bleMouse->move(getRandomDirection(), getRandomDirection());
             previousMillis = millis();
-            if (!wasConnected) wasConnected = true;
-          }
-        } else {
-          if (millis() - previousMillis >= period) {
-            if (wasConnected) ESP.restart();
           }
         }
       break;
@@ -154,6 +148,7 @@ int getConfig(int /*argc*/ , char ** /*argv*/) {
   shell.printf("Movement [period]: %lu ms\n", period);
   shell.printf("Mouse [name]: %s\n", mouseName.c_str());
   shell.printf("Mouse [manu]facturer: %s\n", mouseManu.c_str());
+  shell.printf("Connected [hosts]: %d\n", bleMouse->getConnectedHosts());
   return EXIT_SUCCESS;
 }
 
