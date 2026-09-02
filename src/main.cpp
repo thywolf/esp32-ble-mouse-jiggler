@@ -85,8 +85,7 @@ void setup() {
 
   // Board setup
   setCpuFrequencyMhz(80);
-  int seedValue = analogRead(A0);
-  randomSeed(seedValue);
+  randomSeed(esp_random());
 
   // Preferences setup
   preferences.begin("ble-mouse", false);
@@ -179,6 +178,8 @@ int getRandomDirection() {
 void enterDeepSleep(void) {
   bleMouse->disconnectAll();
   delay(250); // give the hosts a moment to register the disconnect
+  // wake when the Boot button pulls GPIO0 low; it idles high via pull-up
+  esp_sleep_enable_ext0_wakeup(gpio_num_t(bootButton.PIN), 0);
   esp_deep_sleep_start();
 }
 
@@ -232,6 +233,13 @@ int getConfig(int /*argc*/ , char ** /*argv*/) {
   shell.printf("Deep [sleep]: %lu min\n", sleepMinutes);
   shell.printf("Mouse [name]: %s\n", mouseName.c_str());
   shell.printf("Mouse [manu]facturer: %s\n", mouseManu.c_str());
+  shell.printf("Battery [level]: %d %%\n", getBatteryLevel());
+  unsigned long elapsed = millis() - bootMillis;
+  unsigned long remaining = 0;
+  if (elapsed < sleepMinutes * 60000UL) {
+    remaining = (sleepMinutes * 60000UL - elapsed) / 60000UL;
+  }
+  shell.printf("Sleep [left]: %lu min\n", remaining);
   shell.printf("Connected [hosts]: %d\n", bleMouse->getConnectedHosts());
   shell.printf("Pairing [mode]: %s\n", pairingMode ? "on" : "off");
   return EXIT_SUCCESS;
@@ -263,11 +271,11 @@ int setConfig(int argc, char **argv)
   } else {
     if (strcmp(argv[1], "period") == 0) {
       unsigned long value;
-      if (parseUnsigned(argv[2], value) && value >= 100) {
+      if (parseUnsigned(argv[2], value) && value >= 100 && value <= 60000) {
         period = value;
         return EXIT_SUCCESS;
       } else {
-        shell.printf("Invalid period '%s'. Min value: 100.\n", argv[2]);
+        shell.printf("Invalid period '%s'. Allowed values: 100-60000 ms.\n", argv[2]);
       }
     } else if (strcmp(argv[1], "sleep") == 0) {
       unsigned long value;
@@ -299,7 +307,7 @@ int setConfig(int argc, char **argv)
   shell.println();
   shell.println("Usage: set <parameter> <value>");
   shell.println("Parameters:");
-  shell.println("  period - Time between movements (in ms, min. 100)");
+  shell.println("  period - Time between movements (in ms, 100-60000)");
   shell.println("   sleep - Time until deep sleep (in minutes, 5-43200)");
   shell.println("    name - Advertised device name (string, 3-29 chars)");
   shell.println("    manu - Advertised device manufacturer (string, 3-29 chars)");
