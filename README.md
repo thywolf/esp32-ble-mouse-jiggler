@@ -52,7 +52,9 @@ To pair an additional laptop while others are connected, use pairing mode:
 - Press and hold the **Boot** button for 3 seconds → pairing mode **on**: the device stays discoverable even while hosts are connected.
 - Press and hold it again for 3 seconds → pairing mode **off**.
 
-Pairing mode is not saved across reboots; after a power cycle it is off. A short press of the **Boot** button (under 3 seconds) toggles the serial console instead. The current state is shown by the `get` command (`Pairing [mode]`).
+For the first 60 seconds after boot, the device behaves as if pairing mode were **on**, so all already-paired laptops can reconnect at once; after that it locks automatically and is no longer discoverable to new hosts while connected. Holding **Boot** for 3 seconds during that window locks it immediately.
+
+Pairing mode does not persist across reboots: after a power cycle the device starts with the 60-second grace window and then returns to off. A short press of the **Boot** button (under 3 seconds) toggles the serial console instead. The current state is shown by the `get` command (`Pairing [mode]`).
 
 If the mouse doesn't show up in the scan list, enable pairing mode with a long press of **Boot**, toggle Bluetooth on the host and search again, or briefly press the reset button on the board.
 

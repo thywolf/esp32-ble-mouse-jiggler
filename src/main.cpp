@@ -39,7 +39,13 @@ volatile unsigned long pressStart = 0;
 volatile bool longPressHandled = false;
 volatile bool shortPressPending = false;
 
-bool pairingMode = false;
+// Pairing mode starts on for a grace window after boot so all already-paired
+// hosts can reconnect at once (legacy advertising stops on the first
+// connection), then turns off automatically unless toggled manually.
+const unsigned long PAIRING_GRACE_MS = 60000;
+bool pairingMode = true;
+bool pairingGracePending = true;
+unsigned long pairingGraceStart = 0;
 
 void IRAM_ATTR isr() {
   unsigned long now = millis();
@@ -94,10 +100,20 @@ void setup() {
 
   //Mouse setup
   bleMouse = new BleMouse(mouseName, mouseManu, batteryLevel);
+  // sync the advertising gate with the boot grace window before any host
+  // can connect
+  pairingGraceStart = millis();
+  bleMouse->setAdvertiseWhileConnected(pairingMode);
   bleMouse->begin();
 }
 
 void loop() {
+  if (pairingGracePending && millis() - pairingGraceStart >= PAIRING_GRACE_MS) {
+    pairingGracePending = false;
+    if (pairingMode) {
+      setPairingMode(false);
+    }
+  }
   if (buttonHeld && !longPressHandled && millis() - pressStart >= LONG_PRESS_MS) {
     longPressHandled = true;
     setPairingMode(!pairingMode);
@@ -152,6 +168,7 @@ int getRandomDirection() {
 }
 
 void setPairingMode(bool enable) {
+  pairingGracePending = false;
   pairingMode = enable;
   bleMouse->setAdvertiseWhileConnected(enable);
   if (enable) {
