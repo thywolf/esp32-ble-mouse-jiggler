@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Guidance for AI coding agents working in this repository.
+Guidance for AI coding agents working in this repository. This doc exists so that the next session (whether it's you or another agent) doesn't have to rediscover the same ESP32 BLE stack quirks the hard way.
 
 ## Project
 
@@ -27,27 +27,20 @@ The build is the only automated verification; there are no unit tests (`test/` i
 
 ## BLE stack facts (espressif32 6.3.2 / arduino-esp32 2.0.x, Bluedroid)
 
-Verified against the framework sources; do not regress these:
+Verified against the framework sources. These are the things that bite when you assume the BLE stack works the way the spec implies:
 
-- `CONFIG_BT_ACL_CONNECTIONS=4` in the precompiled sdkconfig: hard cap of 4 simultaneous BLE hosts.
+- `CONFIG_BT_ACL_CONNECTIONS=4` in the precompiled sdkconfig: hard cap of 4 simultaneous BLE hosts. No workaround, it's a Bluedroid compile-time constant.
 - Legacy advertising stops on the first connection and the framework never restarts it. `lib/BleMouse` restarts advertising in `onConnect`/`onDisconnect`, gated by `advertiseWhileConnected` (the pairing-mode switch).
-- BLE server callbacks run in the Bluetooth task and fire *before* the framework's `getConnectedCount()` reflects the change. Rely on the library's own `connectionCount`, not the framework counter.
+- BLE server callbacks run in the Bluetooth task and fire *before* the framework's `getConnectedCount()` reflects the change. Rely on the library's own `connectionCount`, not the framework counter — there's a one-beat lag.
 - `BLEAdvertising::start()` is fully async in this core version (no blocking semaphore waits), so calling it from BLE callbacks is safe.
 - `BLEServer::getGattsIf()` is private; use the public `BLEServer::disconnect(connId)` instead (`BleMouse::disconnectAll()` does).
 
 ## Behavioral invariants
 
 - All timers anchor to `bootMillis`, captured at the top of `setup()`: movement ticks, the deep-sleep countdown, and the simulated battery (linear 100% → 0% over the sleep window). Keep them correlated when touching any one of them.
-- `sleep` is capped at 43200 minutes because `minutes * 60000` must stay within 32-bit `millis()` arithmetic.
+- `sleep` is capped at 43200 minutes because `minutes * 60000` must stay within 32-bit `millis()` arithmetic. (Trust me, I've seen millis() overflow bugs. They're Saturday-night-debugging material.)
 - Parameter bounds live in three places that must stay in sync: `setConfig` in `src/main.cpp`, the usage text it prints, and `README.md`. Bounds: period 100–60000 ms, sleep 5–43200 min, name/manu 3–29 chars. Parsing goes through `parseUnsigned`, which rejects signs (strtoul would wrap negatives into huge values).
 - `period`/`sleep` apply immediately; `name`/`manu` only apply after a reboot (BLE stack initialized in `setup()`). NVS namespace is `ble-mouse` (keys: `period`, `sleep`, `name`, `manu`).
-- Pairing mode is ON for the first 60 s after boot (`PAIRING_GRACE_MS`, lets already-bonded hosts reconnect since legacy advertising stops on the first connection), then OFF. Boot button: short press (acted on release) toggles the serial console, 3 s hold toggles pairing mode, and a press spanning the boot (deep-sleep wake) is suppressed via `suppressNextRelease` — the firmware never saw its press edge.
-- Deep sleep entry: `disconnectAll()` → 250 ms delay → `esp_sleep_enable_ext0_wakeup(GPIO0, low)` → `esp_deep_sleep_start()`. There is no timer wake source; the board wakes on the Boot button or a reset.
-- Deep sleep and `ESP.restart()` lose all RAM state; only NVS preferences persist.
-
-## Conventions
-
-- Non-blocking `loop()`: no `delay()` in steady state (the 250 ms before deep sleep is the sanctioned exception).
-- State shared with the ISR is `volatile`; the ISR only sets flags, decisions happen in `loop()`.
-- Match the existing Arduino-style code of each file; comments state constraints, not narration.
-- Commit messages use prefixes: `feat:`, `fix:`, `docs:`.
+- Pairing mode is ON for the first 60 s after boot (`PAIRING_GRACE_MS`, lets already-bonded hosts reconnect since legacy advertising stops on the first connection), then OFF. Boot button: short press (acted on release) toggles the serial console, 3 s hold toggles pairing mode.
+- The sleep timer starts at boot and is not reset by configuration changes or reconnections. It also keeps running while the serial console is open. (This is by design — the device has a hard "off" time, not a "last activity" timeout.)
+- Unsaved changes are lost on reboot. Use `save` to persist them.
