@@ -14,7 +14,7 @@ Written for the AZ-Delivery DevKit V4 (ESP32-WROOM-32) using PlatformIO, with a 
 
 The mouse can stay connected to up to 4 laptops simultaneously (a limit of the ESP32 Bluetooth stack). All connected hosts receive the cursor movements and battery updates, so every paired machine is kept awake at the same time.
 
-Pair each laptop normally. Advertising restarts automatically after disconnects and reboots, so any paired laptop can (re)connect at any time. The `get` command displays the number of currently connected hosts.
+Pair each laptop as described below. Advertising restarts automatically after disconnects and reboots, so any paired laptop can (re)connect at any time. The `get` command displays the number of currently connected hosts.
 
 ## Building and flashing
 
@@ -27,9 +27,25 @@ pio device monitor       # serial monitor at 115200 baud
 
 The project uses the `huge_app` partition table to fit the Bluetooth stack.
 
-## Configuration
+## Pairing
 
-The device boots straight into mouse mode. Pair it in your operating system's Bluetooth settings like any other mouse.
+The device boots straight into mouse mode and starts advertising. Pair it in your operating system's Bluetooth settings like any other mouse — the advertised name defaults to `Wobbly BLE Mouse`:
+
+- **Windows:** Settings → Bluetooth & devices → Add device → Bluetooth, then select the mouse.
+- **macOS:** System Settings → Bluetooth, then click **Connect** when the mouse appears.
+- **Linux:** the Bluetooth panel of your desktop environment, or `bluetoothctl`:
+
+  ```
+  scan on
+  pair <device-mac>
+  trust <device-mac>
+  ```
+
+You can pair additional laptops while others are connected — repeat the steps on each machine, up to 4 in total. Once paired, hosts reconnect automatically after a reboot or after being out of range.
+
+If the mouse doesn't show up in the scan list, toggle Bluetooth on the host and search again, or briefly press the reset button on the board.
+
+## Configuration
 
 Configuration is done over a serial console (115200 baud) that is off by default: press the **Boot** button on the board to switch it on or off at any time. While the console is open, mouse movements are paused.
 
