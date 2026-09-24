@@ -12,6 +12,7 @@ Preferences preferences;
 unsigned long bootMillis = 0;
 unsigned long previousMillis = 0;
 unsigned long period;
+int moveDist = 1;
 unsigned long sleepMinutes;
 std::string mouseName;
 std::string mouseManu;
@@ -74,7 +75,7 @@ void IRAM_ATTR isr() {
 
 BleMouse *bleMouse;
 
-int getRandomDirection();
+int randomSignedOffset(int dist);
 int getBatteryLevel();
 int loadPreferences(int /*argc*/ , char ** /*argv*/);
 int savePreferences(int /*argc*/ , char ** /*argv*/ );
@@ -155,7 +156,15 @@ void loop() {
       if(bleMouse->isConnected()) {
           if (millis() - previousMillis >= period) {
             bleMouse->setBatteryLevel(getBatteryLevel());
-            bleMouse->move(getRandomDirection(), getRandomDirection());
+            int x;
+            int y;
+            do {
+              // rejection-resampling: a (0, 0) report would move nothing,
+              // so redraw until at least one axis is non-zero
+              x = randomSignedOffset(moveDist);
+              y = randomSignedOffset(moveDist);
+            } while (x == 0 && y == 0);
+            bleMouse->move(x, y);
             previousMillis = millis();
           }
         }
@@ -178,9 +187,9 @@ void loop() {
   }
 }
 
-int getRandomDirection() {
-  int randomNumber = random(3);
-  return randomNumber - 1;
+int randomSignedOffset(int dist) {
+  // random value in [-dist, dist], inclusive
+  return (int)random(2 * dist + 1) - dist;
 }
 
 void enterDeepSleep(void) {
@@ -219,6 +228,10 @@ void setPairingMode(bool enable) {
 
 int loadPreferences(int /*argc*/ , char ** /*argv*/) {
   period = preferences.getULong("period", 15000);
+  moveDist = preferences.getUChar("dist", 1);
+  if (moveDist < 1 || moveDist > 127) {
+    moveDist = 1;
+  }
   sleepMinutes = preferences.getULong("sleep", 480);
   if (sleepMinutes < 5 || sleepMinutes > 43200) {
     sleepMinutes = 480;
@@ -230,6 +243,7 @@ int loadPreferences(int /*argc*/ , char ** /*argv*/) {
 
 int savePreferences(int /*argc*/ , char ** /*argv*/) {
   preferences.putULong("period", period);
+  preferences.putUChar("dist", (uint8_t)moveDist);
   preferences.putULong("sleep", sleepMinutes);
   preferences.putString("name", mouseName.c_str());
   preferences.putString("manu", mouseManu.c_str());
@@ -238,6 +252,7 @@ int savePreferences(int /*argc*/ , char ** /*argv*/) {
 
 int getConfig(int /*argc*/ , char ** /*argv*/) {
   shell.printf("Movement [period]: %lu ms\n", period);
+  shell.printf("Movement [dist]: %d px\n", moveDist);
   shell.printf("Deep [sleep]: %lu min\n", sleepMinutes);
   shell.printf("Mouse [name]: %s\n", mouseName.c_str());
   shell.printf("Mouse [manu]facturer: %s\n", mouseManu.c_str());
@@ -285,6 +300,14 @@ int setConfig(int argc, char **argv)
       } else {
         shell.printf("Invalid period '%s'. Allowed values: 100-60000 ms.\n", argv[2]);
       }
+    } else if (strcmp(argv[1], "dist") == 0) {
+      unsigned long value;
+      if (parseUnsigned(argv[2], value) && value >= 1 && value <= 127) {
+        moveDist = (int)value;
+        return EXIT_SUCCESS;
+      } else {
+        shell.printf("Invalid dist '%s'. Allowed values: 1-127 px.\n", argv[2]);
+      }
     } else if (strcmp(argv[1], "sleep") == 0) {
       unsigned long value;
       if (parseUnsigned(argv[2], value) && value >= 5 && value <= 43200) {
@@ -316,6 +339,7 @@ int setConfig(int argc, char **argv)
   shell.println("Usage: set <parameter> <value>");
   shell.println("Parameters:");
   shell.println("  period - Time between movements (in ms, 100-60000)");
+  shell.println("    dist - Max distance per axis (in px, 1-127)");
   shell.println("   sleep - Time until deep sleep (in minutes, 5-43200)");
   shell.println("    name - Advertised device name (string, 3-29 chars)");
   shell.println("    manu - Advertised device manufacturer (string, 3-29 chars)");

@@ -6,7 +6,7 @@ Written for the AZ-Delivery DevKit V4 (ESP32-WROOM-32) using PlatformIO, with a 
 
 ## How it works
 
-- Emulates a standard BLE HID mouse. Every `period` milliseconds it moves the cursor by a random offset of ±1 pixel on each axis.
+- Emulates a standard BLE HID mouse. Every `period` milliseconds it moves the cursor by a random offset in `±dist` pixels on each axis. A (0, 0) report is never sent: if both axes come up 0, the offsets are redrawn until at least one axis moves, so every report moves the cursor.
 - Reports a simulated battery level that drains linearly from 100% at boot to 0% when the sleep timer runs out.
 - After `sleep` minutes (default 480 = 8 hours, counted from boot) it disconnects all hosts and enters deep sleep. Wake it by pressing the **Boot** (or EN/reset) button or re-plugging USB power.
 - Once flashed and configured, the device only needs power — any USB port or power bank works. (Note: many power banks cut their output below a current threshold, which can end a session early.)
@@ -61,6 +61,7 @@ Configurable parameters:
 
 ```
   period - Time between movements (in ms, 100-60000)
+    dist - Max movement distance per axis (in px, 1-127)
    sleep - Time until deep sleep (in minutes, 5-43200)
     name - Advertised device name (string, 3-29 chars)
     manu - Advertised device manufacturer (string, 3-29 chars)
@@ -68,10 +69,10 @@ Configurable parameters:
 
 Notes:
 
-- `set period ...` and `set sleep ...` take effect immediately; `set name ...` and `set manu ...` only apply after a reboot, because the BLE stack is initialized at boot.
+- `set period ...`, `set dist ...` and `set sleep ...` take effect immediately; `set name ...` and `set manu ...` only apply after a reboot, because the BLE stack is initialized at boot.
 - The sleep timer starts at boot and is not reset by configuration changes or reconnections. It also keeps running while the serial console is open.
 - Unsaved changes are lost on reboot. Use `save` to persist them, and `exit` (or the reset button) to reboot.
-- Defaults: period `15000`, sleep `480` (8 hours), name `Wobbly BLE Mouse`, manufacturer `ESP32`.
+- Defaults: period `15000`, dist `1`, sleep `480` (8 hours), name `Wobbly BLE Mouse`, manufacturer `ESP32`.
 
 Example session:
 
