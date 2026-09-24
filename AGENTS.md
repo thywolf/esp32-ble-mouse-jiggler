@@ -38,9 +38,10 @@ Verified against the framework sources. These are the things that bite when you 
 ## Behavioral invariants
 
 - All timers anchor to `bootMillis`, captured at the top of `setup()`: movement ticks, the deep-sleep countdown, and the simulated battery (linear 100% → 0% over the sleep window). Keep them correlated when touching any one of them.
+- A HID movement report of (0, 0) is never sent: with both axes at 0 nothing would move on the hosts, so movement offsets are rejection-resampled until at least one axis is non-zero. Keep this invariant when touching movement code.
 - `sleep` is capped at 43200 minutes because `minutes * 60000` must stay within 32-bit `millis()` arithmetic. (Trust me, I've seen millis() overflow bugs. They're Saturday-night-debugging material.)
-- Parameter bounds live in three places that must stay in sync: `setConfig` in `src/main.cpp`, the usage text it prints, and `README.md`. Bounds: period 100–60000 ms, sleep 5–43200 min, name/manu 3–29 chars. Parsing goes through `parseUnsigned`, which rejects signs (strtoul would wrap negatives into huge values).
-- `period`/`sleep` apply immediately; `name`/`manu` only apply after a reboot (BLE stack initialized in `setup()`). NVS namespace is `ble-mouse` (keys: `period`, `sleep`, `name`, `manu`).
+- Parameter bounds live in three places that must stay in sync: `setConfig` in `src/main.cpp`, the usage text it prints, and `README.md`. Bounds: period 100–60000 ms, dist 1–127 px, sleep 5–43200 min, name/manu 3–29 chars. Parsing goes through `parseUnsigned`, which rejects signs (strtoul would wrap negatives into huge values).
+- `period`/`dist`/`sleep` apply immediately; `name`/`manu` only apply after a reboot (BLE stack initialized in `setup()`). NVS namespace is `ble-mouse` (keys: `period`, `dist`, `sleep`, `name`, `manu`).
 - Pairing mode is ON for the first 60 s after boot (`PAIRING_GRACE_MS`, lets already-bonded hosts reconnect since legacy advertising stops on the first connection), then OFF. Boot button: short press (acted on release) toggles the serial console, 3 s hold toggles pairing mode.
 - The sleep timer starts at boot and is not reset by configuration changes or reconnections. It also keeps running while the serial console is open. (This is by design — the device has a hard "off" time, not a "last activity" timeout.)
 - Unsaved changes are lost on reboot. Use `save` to persist them.
