@@ -136,8 +136,27 @@ int BleMouse::getConnectedHosts(void) {
   return this->connectionStatus->connectionCount;
 }
 
-void BleMouse::setAdvertiseWhileConnected(bool enable) {
-  this->connectionStatus->advertiseWhileConnected = enable;
+int BleMouse::getMaxHosts(void) {
+  // hard cap of the Bluedroid stack, see CONFIG_BT_ACL_CONNECTIONS
+  return CONFIG_BT_ACL_CONNECTIONS;
+}
+
+void BleMouse::setAdvertising(bool enable) {
+  // The flag is what the connect/disconnect callbacks re-apply, so set it even
+  // when the Bluetooth task has not created the server yet
+  this->connectionStatus->advertisingEnabled = enable;
+  if (this->connectionStatus->pServer == 0) {
+    return;
+  }
+  if (enable) {
+    this->startAdvertising();
+  } else {
+    this->stopAdvertising();
+  }
+}
+
+bool BleMouse::isAdvertisingEnabled(void) {
+  return this->connectionStatus->advertisingEnabled;
 }
 
 void BleMouse::startAdvertising(void) {

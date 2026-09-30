@@ -40,7 +40,9 @@ public:
   bool isPressed(uint8_t b = MOUSE_LEFT); // check LEFT by default
   bool isConnected(void);
   int getConnectedHosts(void);
-  void setAdvertiseWhileConnected(bool enable);
+  int getMaxHosts(void);
+  void setAdvertising(bool enable);
+  bool isAdvertisingEnabled(void);
   void startAdvertising(void);
   void stopAdvertising(void);
   void disconnectAll(void);
