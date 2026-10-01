@@ -289,27 +289,29 @@ int savePreferences(int /*argc*/ , char ** /*argv*/) {
 }
 
 int getConfig(int /*argc*/ , char ** /*argv*/) {
-  shell.printf("Movement [period]: %lu ms\n", period);
-  shell.printf("Movement [dist]: %d px\n", moveDist);
-  shell.printf("Deep [sleep]: %lu min\n", sleepMinutes);
-  shell.printf("Mouse [name]: %s\n", mouseName.c_str());
-  shell.printf("Mouse [manu]facturer: %s\n", mouseManu.c_str());
-  shell.printf("Battery [level]: %d %%\n", getBatteryLevel());
   unsigned long elapsed = millis() - bootMillis;
   unsigned long remaining = 0;
   if (elapsed < sleepMinutes * 60000UL) {
     remaining = (sleepMinutes * 60000UL - elapsed) / 60000UL;
   }
-  shell.printf("Sleep [left]: %lu min\n", remaining);
-  shell.printf("Connected [hosts]: %d\n", bleMouse->getConnectedHosts());
-  shell.printf("Pairing [mode]: %s", pairingMode ? "on" : "off");
+  // one-line status header: the live values at a glance, config table follows
+  shell.printf("Status: [battery] %d%% [hosts] %d [pairing] ",
+      getBatteryLevel(), bleMouse->getConnectedHosts());
   if (pairingMode) {
     unsigned long left = pairingModeEnd - millis();
-    shell.printf(" (%lus left)", (unsigned long)(left / 1000UL));
+    shell.printf("on (%lus left)", (unsigned long)(left / 1000UL));
+  } else {
+    shell.print("off");
   }
+  shell.printf(" [advertising] %s [sleep] %lu min left\n",
+      bleMouse->isAdvertisingEnabled() ? "on" : "off", remaining);
   shell.println();
+  shell.printf("Movement [period]: %lu ms\n", period);
+  shell.printf("Movement [dist]: %d px\n", moveDist);
+  shell.printf("Deep [sleep]: %lu min\n", sleepMinutes);
+  shell.printf("Mouse [name]: %s\n", mouseName.c_str());
+  shell.printf("Mouse [manu]facturer: %s\n", mouseManu.c_str());
   shell.printf("Pairing [timeout]: %lu s\n", pairingTimeout / 1000UL);
-  shell.printf("Advertising [now]: %s\n", bleMouse->isAdvertisingEnabled() ? "on" : "off");
   return EXIT_SUCCESS;
 }
 
