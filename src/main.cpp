@@ -47,9 +47,13 @@ volatile bool suppressNextRelease = false;
 // after boot and after every change of the connected-host count. That lets
 // hosts which dropped mid-session (out of range, reboot, radio hiccup) come
 // back on their own, while the device still hides itself once everything
-// settles. Staying discoverable for good is what pairing mode is for.
+// settles. Pairing mode runs on the same clock: after PAIRING_TIMEOUT_MS it
+// switches itself off, so a forgotten press cannot leave the device
+// discoverable forever.
 const unsigned long ADVERTISE_GRACE_MS = 60000;
+const unsigned long PAIRING_TIMEOUT_MS = ADVERTISE_GRACE_MS;
 bool pairingMode = false;
+unsigned long pairingModeEnd = 0;
 unsigned long advertiseGraceEnd = 0;
 int lastHostCount = 0;
 // kept in sync by the advertising policy in loop(); BleMouse::begin() starts
@@ -143,10 +147,15 @@ void loop() {
         break;
     }
   }
-  // Short click toggles pairing mode (discoverable for as long as it is on).
+  // Short click toggles pairing mode; it switches itself off after
+  // PAIRING_TIMEOUT_MS so a forgotten press can't leave the device discoverable.
   if (shortPressPending) {
     shortPressPending = false;
     setPairingMode(!pairingMode);
+  }
+  // A forgotten pairing mode switches itself off, like the grace window does.
+  if (pairingMode && millis() >= pairingModeEnd) {
+    setPairingMode(false);
   }
   // Advertising policy: the device is discoverable while it has no hosts, while
   // pairing mode is on, and for a grace window after every connection change;
@@ -229,6 +238,9 @@ int getBatteryLevel() {
 
 void setPairingMode(bool enable) {
   pairingMode = enable;
+  // pairing mode runs on a timer like the reconnect window, so a forgotten
+  // short press cannot leave the device discoverable forever
+  pairingModeEnd = enable ? millis() + PAIRING_TIMEOUT_MS : 0;
   if (!enable) {
     // locking by hand closes the reconnect window at once; the next connection
     // change opens it again
@@ -236,7 +248,7 @@ void setPairingMode(bool enable) {
   }
   // the advertising policy in loop() applies the change on the next iteration
   if (appState == APP_SERIAL) {
-    shell.println(enable ? "Pairing mode on - the device stays discoverable while hosts are connected."
+    shell.println(enable ? "Pairing mode on - the device stays discoverable for a minute or until it is switched off again."
                          : "Pairing mode off - the device only advertises while no host is connected and for a minute after a disconnect.");
   }
 }
@@ -279,7 +291,12 @@ int getConfig(int /*argc*/ , char ** /*argv*/) {
   }
   shell.printf("Sleep [left]: %lu min\n", remaining);
   shell.printf("Connected [hosts]: %d\n", bleMouse->getConnectedHosts());
-  shell.printf("Pairing [mode]: %s\n", pairingMode ? "on" : "off");
+  shell.printf("Pairing [mode]: %s", pairingMode ? "on" : "off");
+  if (pairingMode) {
+    unsigned long left = pairingModeEnd - millis();
+    shell.printf(" (%lus left)", (unsigned long)(left / 1000UL));
+  }
+  shell.println();
   shell.printf("Advertising [now]: %s\n", bleMouse->isAdvertisingEnabled() ? "on" : "off");
   return EXIT_SUCCESS;
 }
