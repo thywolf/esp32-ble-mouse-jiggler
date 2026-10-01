@@ -21,7 +21,7 @@ The build is the only automated verification; there are no unit tests (`test/` i
 
 ## Layout
 
-- `src/main.cpp` — application: `APP_BLE`/`APP_SERIAL` state machine, Boot-button ISR with short/long-press gestures, sleep timer, simulated battery, serial shell commands (`get`/`set`/`save`/`load`/`exit`)
+- `src/main.cpp` — application: `APP_BLE`/`APP_SERIAL` state machine, Boot-button ISR with short/long-press gestures, sleep timer, simulated battery, serial shell commands (`get`/`set`/`save`/`load`/`ping`/`uptime`/`exit`)
 - `src/quotedTokenizer.{h,cpp}` — `strtok_r`-compatible tokenizer honoring double quotes
 - `lib/BleMouse/` — vendored fork of t-vk/ESP32-BLE-Mouse v0.3.1 (MIT) patched for simultaneous multi-host connections. Do not re-add `t-vk/ESP32 BLE Mouse` to `lib_deps` and do not "upgrade" the fork to upstream; the patches are the point.
 
@@ -34,15 +34,16 @@ Verified against the framework sources. These are the things that bite when you 
 - BLE server callbacks run in the Bluetooth task and fire *before* the framework's `getConnectedCount()` reflects the change. Rely on the library's own `connectionCount`, not the framework counter — there's a one-beat lag.
 - `BLEAdvertising::start()` is fully async in this core version (no blocking semaphore waits), so calling it from BLE callbacks is safe.
 - `BLEServer::getGattsIf()` is private; use the public `BLEServer::disconnect(connId)` instead (`BleMouse::disconnectAll()` does).
+- `BLEServer::updateConnParams(remote_bda, minInterval, maxInterval, latency, timeout)` is public and queues a connection-parameter update via `esp_ble_gap_update_conn_params`. It must be called from the `onConnect(BLEServer*, esp_ble_gatts_cb_param_t*)` callback (the param-taking overload), which carries `param->connect.remote_bda`. Values are in units of 1.25 ms for intervals and 10 ms for timeout. The stock 7.5–11.25 ms interval starves the single radio when 3+ hosts connect, so the fork requests 30–50 ms (min=24, max=40, latency=0, timeout=400).
 
 ## Behavioral invariants
 
 - All timers anchor to `bootMillis`, captured at the top of `setup()`: movement ticks, the deep-sleep countdown, and the simulated battery (linear 100% → 0% over the sleep window). Keep them correlated when touching any one of them.
 - A HID movement report of (0, 0) is never sent: with both axes at 0 nothing would move on the hosts, so movement offsets are rejection-resampled until at least one axis is non-zero. Keep this invariant when touching movement code.
 - `sleep` is capped at 43200 minutes because `minutes * 60000` must stay within 32-bit `millis()` arithmetic. (Trust me, I've seen millis() overflow bugs. They're Saturday-night-debugging material.)
-- Parameter bounds live in three places that must stay in sync: `setConfig` in `src/main.cpp`, the usage text it prints, and `README.md`. Bounds: period 100–60000 ms, dist 1–127 px, sleep 5–43200 min, name/manu 3–29 chars. Parsing goes through `parseUnsigned`, which rejects signs (strtoul would wrap negatives into huge values).
-- `period`/`dist`/`sleep` apply immediately; `name`/`manu` only apply after a reboot (BLE stack initialized in `setup()`). NVS namespace is `ble-mouse` (keys: `period`, `dist`, `sleep`, `name`, `manu`).
+- Parameter bounds live in three places that must stay in sync: `setConfig` in `src/main.cpp`, the usage text it prints, and `README.md`. Bounds: period 100–60000 ms, dist 1–127 px, sleep 5–43200 min, pairing 5–600 s, name/manu 3–29 chars. Parsing goes through `parseUnsigned`, which rejects signs (strtoul would wrap negatives into huge values).
+- `period`/`dist`/`sleep`/`pairing` apply immediately; `name`/`manu` only apply after a reboot (BLE stack initialized in `setup()`). NVS namespace is `ble-mouse` (keys: `period`, `dist`, `sleep`, `pairing`, `name`, `manu`).
 - Advertising is decided once per loop in `src/main.cpp`: on while no host is connected, on while pairing mode is on, and on for a grace window (`ADVERTISE_GRACE_MS`, 60 s) after boot and after *every* change of the connected-host count. That window is what lets a host which dropped mid-session reconnect by itself — without it the device would sit unreachable until someone pressed **Boot**, and it also requires a free slot (`< CONFIG_BT_ACL_CONNECTIONS`). Boot button: short press (acted on release) toggles pairing mode (turning it off closes the window at once), 3 s hold toggles the serial console.
-- Pairing mode is itself timed: `pairingModeEnd` is set in `setPairingMode` (`PAIRING_TIMEOUT_MS`, 60 s, aliased to `ADVERTISE_GRACE_MS`), and `loop()` calls `setPairingMode(false)` when it elapses — so a forgotten short press cannot leave the device discoverable forever. `setPairingMode(false)` from any path also closes the reconnect window at once (`advertiseGraceEnd = 0`).
+- Pairing mode is itself timed: `pairingModeEnd` is set in `setPairingMode` (`pairingTimeout`, configurable via `set pairing <seconds>`, default 60 s aliased to `ADVERTISE_GRACE_MS`), and `loop()` calls `setPairingMode(false)` when it elapses — so a forgotten short press cannot leave the device discoverable forever. `setPairingMode(false)` from any path also closes the reconnect window at once (`advertiseGraceEnd = 0`).
 - The sleep timer starts at boot and is not reset by configuration changes or reconnections. It also keeps running while the serial console is open. (This is by design — the device has a hard "off" time, not a "last activity" timeout.)
 - Unsaved changes are lost on reboot. Use `save` to persist them.

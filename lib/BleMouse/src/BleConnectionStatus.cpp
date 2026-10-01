@@ -16,6 +16,15 @@ void BleConnectionStatus::onConnect(BLEServer* pServer)
   }
 }
 
+void BleConnectionStatus::onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t *param)
+{
+  // Request longer connection intervals (30-50 ms) with no slave latency
+  // and a 4 s supervision timeout. The stock 7.5-11.25 ms interval starves
+  // the single ESP32 radio when 3+ hosts are connected, causing random drops.
+  //   min=24 -> 30 ms, max=40 -> 50 ms, latency=0, timeout=400 -> 4000 ms
+  pServer->updateConnParams(param->connect.remote_bda, 24, 40, 0, 400);
+}
+
 void BleConnectionStatus::onDisconnect(BLEServer* pServer)
 {
   if (this->connectionCount > 0) {

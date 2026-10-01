@@ -19,6 +19,7 @@ public:
   // when false the device stays hidden while it is serving hosts.
   volatile bool advertisingEnabled = true;
   void onConnect(BLEServer* pServer);
+  void onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t *param);
   void onDisconnect(BLEServer* pServer);
   BLECharacteristic* inputMouse;
   BLEServer* pServer = 0;

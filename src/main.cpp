@@ -47,11 +47,13 @@ volatile bool suppressNextRelease = false;
 // after boot and after every change of the connected-host count. That lets
 // hosts which dropped mid-session (out of range, reboot, radio hiccup) come
 // back on their own, while the device still hides itself once everything
-// settles. Pairing mode runs on the same clock: after PAIRING_TIMEOUT_MS it
+// settles. Pairing mode runs on the same clock: after pairingTimeout it
 // switches itself off, so a forgotten press cannot leave the device
 // discoverable forever.
 const unsigned long ADVERTISE_GRACE_MS = 60000;
-const unsigned long PAIRING_TIMEOUT_MS = ADVERTISE_GRACE_MS;
+// pairing timeout is configurable via the serial shell (set pairing <seconds>);
+// defaults to ADVERTISE_GRACE_MS (60 s) at boot
+unsigned long pairingTimeout = ADVERTISE_GRACE_MS;
 bool pairingMode = false;
 unsigned long pairingModeEnd = 0;
 unsigned long advertiseGraceEnd = 0;
@@ -91,6 +93,7 @@ int savePreferences(int /*argc*/ , char ** /*argv*/ );
 int getConfig(int /*argc*/ , char ** /*argv*/ );
 int setConfig(int argc, char **argv);
 int doReboot(int /*argc*/ , char ** /*argv*/);
+int doPing(int /*argc*/ , char ** /*argv*/);
 void setPairingMode(bool enable);
 void enterDeepSleep(void);
 
@@ -118,6 +121,8 @@ void setup() {
   shell.addCommand(F("set \t- Sets parameter to a value"), setConfig);
   shell.addCommand(F("load \t- Loads stored configuration"), loadPreferences);
   shell.addCommand(F("save \t- Saves current configuration"), savePreferences);
+  shell.addCommand(F("ping \t- Responds with pong and device uptime"), doPing);
+  shell.addCommand(F("uptime \t- Responds with pong and device uptime"), doPing);
   shell.addCommand(F("exit \t- Reboots the device"), doReboot);
   shell.setTokenizer(quotedTokenizer);
 
@@ -148,7 +153,7 @@ void loop() {
     }
   }
   // Short click toggles pairing mode; it switches itself off after
-  // PAIRING_TIMEOUT_MS so a forgotten press can't leave the device discoverable.
+  // pairingTimeout so a forgotten press can't leave the device discoverable.
   if (shortPressPending) {
     shortPressPending = false;
     setPairingMode(!pairingMode);
@@ -240,7 +245,7 @@ void setPairingMode(bool enable) {
   pairingMode = enable;
   // pairing mode runs on a timer like the reconnect window, so a forgotten
   // short press cannot leave the device discoverable forever
-  pairingModeEnd = enable ? millis() + PAIRING_TIMEOUT_MS : 0;
+  pairingModeEnd = enable ? millis() + pairingTimeout : 0;
   if (!enable) {
     // locking by hand closes the reconnect window at once; the next connection
     // change opens it again
@@ -263,6 +268,11 @@ int loadPreferences(int /*argc*/ , char ** /*argv*/) {
   if (sleepMinutes < 5 || sleepMinutes > 43200) {
     sleepMinutes = 480;
   }
+  // pairing timeout is stored in seconds, converted to ms at load time
+  pairingTimeout = preferences.getULong("pairing", 60) * 1000UL;
+  if (pairingTimeout < 5000UL || pairingTimeout > 600000UL) {
+    pairingTimeout = ADVERTISE_GRACE_MS;
+  }
   mouseName = std::string(preferences.getString("name", "Wobbly BLE Mouse").c_str());
   mouseManu = std::string(preferences.getString("manu", "ESP32").c_str());
   return EXIT_SUCCESS;
@@ -272,6 +282,7 @@ int savePreferences(int /*argc*/ , char ** /*argv*/) {
   preferences.putULong("period", period);
   preferences.putUChar("dist", (uint8_t)moveDist);
   preferences.putULong("sleep", sleepMinutes);
+  preferences.putULong("pairing", pairingTimeout / 1000UL);
   preferences.putString("name", mouseName.c_str());
   preferences.putString("manu", mouseManu.c_str());
   return EXIT_SUCCESS;
@@ -297,12 +308,19 @@ int getConfig(int /*argc*/ , char ** /*argv*/) {
     shell.printf(" (%lus left)", (unsigned long)(left / 1000UL));
   }
   shell.println();
+  shell.printf("Pairing [timeout]: %lu s\n", pairingTimeout / 1000UL);
   shell.printf("Advertising [now]: %s\n", bleMouse->isAdvertisingEnabled() ? "on" : "off");
   return EXIT_SUCCESS;
 }
 
 int doReboot(int /*argc*/ , char ** /*argv*/) {
   ESP.restart();
+  return EXIT_SUCCESS;
+}
+
+int doPing(int /*argc*/ , char ** /*argv*/ ) {
+  unsigned long uptime = (millis() - bootMillis) / 1000UL;
+  shell.printf("pong %lus\n", uptime);
   return EXIT_SUCCESS;
 }
 
@@ -349,6 +367,14 @@ int setConfig(int argc, char **argv)
       } else {
         shell.printf("Invalid sleep '%s'. Allowed values: 5-43200 minutes.\n", argv[2]);
       }
+    } else if (strcmp(argv[1], "pairing") == 0) {
+      unsigned long value;
+      if (parseUnsigned(argv[2], value) && value >= 5 && value <= 600) {
+        pairingTimeout = value * 1000UL;
+        return EXIT_SUCCESS;
+      } else {
+        shell.printf("Invalid pairing '%s'. Allowed values: 5-600 seconds.\n", argv[2]);
+      }
     } else if (strcmp(argv[1], "name") == 0) {
       if (strlen(argv[2]) >= 3 && strlen(argv[2]) <= 29) {
         mouseName = argv[2];
@@ -374,6 +400,7 @@ int setConfig(int argc, char **argv)
   shell.println("  period - Time between movements (in ms, 100-60000)");
   shell.println("    dist - Max distance per axis (in px, 1-127)");
   shell.println("   sleep - Time until deep sleep (in minutes, 5-43200)");
+  shell.println(" pairing - Pairing mode duration (in seconds, 5-600)");
   shell.println("    name - Advertised device name (string, 3-29 chars)");
   shell.println("    manu - Advertised device manufacturer (string, 3-29 chars)");
   shell.println();
