@@ -15,6 +15,8 @@ Written for the AZ-Delivery DevKit V4 (ESP32-WROOM-32) using PlatformIO, with a 
 
 The mouse can stay connected to up to 4 laptops simultaneously (a limit of the ESP32 Bluetooth stack). All connected hosts receive the cursor movements and battery updates, so every paired machine is kept awake at the same time.
 
+To reduce radio contention when multiple hosts are connected, the device requests longer BLE connection intervals (30–50 ms, no slave latency, 4 s supervision timeout) after each host connects, instead of the default 7.5–11.25 ms. This is a *request* — the host may grant a different interval — but it frees enough air time on the single ESP32 radio to keep three or more hosts stable.
+
 Pair each laptop as described below. While hosts are connected, enable pairing mode to make the device discoverable for the next one.
 
 The device advertises whenever no host is connected, and every change in the number of connected hosts re-opens a 60-second reconnect window. A laptop that drops out — a radio hiccup, a brief trip out of range, a reboot — therefore comes back on its own instead of waiting for you to press **Boot**. A host that stays away longer than the window can only return once the other hosts disconnect, or after you turn pairing mode on.
@@ -37,7 +39,7 @@ The device connects via BLE, so you only need to flash it once. After that, conf
 
 To pair an additional laptop while others are connected, use pairing mode:
 
-- Short-press the **Boot** button → pairing mode **on**: the device stays discoverable even while hosts are connected. It switches itself off again after 60 seconds, so a forgotten press cannot leave it discoverable forever.
+- Short-press the **Boot** button → pairing mode **on**: the device stays discoverable even while hosts are connected. It switches itself off again after the configured `pairing` timeout (default 60 seconds), so a forgotten press cannot leave it discoverable forever.
 - Short-press it again → pairing mode **off**.
 
 For 60 seconds after boot — and again after every change in the number of connected hosts — the device behaves as if pairing mode were **on**, so already-paired laptops can reconnect. After that it locks automatically and is no longer discoverable to new hosts while connected. Short-pressing **Boot** toggles pairing mode off and closes the window immediately.
@@ -53,30 +55,33 @@ Configuration happens over a serial console (115200 baud) that is off by default
 Commands:
 
 ```
-  exit  - Reboots the device
-  get   - Displays current configuration
-  help  - Displays available commands
-  load  - Loads stored configuration
-  save  - Saves current configuration
-  set   - Sets parameter to a value
+  exit   - Reboots the device
+  get    - Displays current configuration
+  help   - Displays available commands
+  load   - Loads stored configuration
+  ping   - Responds with pong and device uptime
+  save   - Saves current configuration
+  set    - Sets parameter to a value
+  uptime - Responds with pong and device uptime
 ```
 
 Configurable parameters:
 
 ```
-  period - Time between movements (in ms, 100-60000)
-    dist - Max movement distance per axis (in px, 1-127)
-   sleep - Time until deep sleep (in minutes, 5-43200)
-    name - Advertised device name (string, 3-29 chars)
-    manu - Advertised device manufacturer (string, 3-29 chars)
+  period  - Time between movements (in ms, 100-60000)
+    dist  - Max movement distance per axis (in px, 1-127)
+   sleep  - Time until deep sleep (in minutes, 5-43200)
+ pairing  - Pairing mode duration (in seconds, 5-600)
+    name  - Advertised device name (string, 3-29 chars)
+    manu  - Advertised device manufacturer (string, 3-29 chars)
 ```
 
 Notes:
 
-- `set period ...`, `set dist ...` and `set sleep ...` take effect immediately; `set name ...` and `set manu ...` only apply after a reboot, because the BLE stack is initialized at boot.
+- `set period ...`, `set dist ...`, `set sleep ...` and `set pairing ...` take effect immediately; `set name ...` and `set manu ...` only apply after a reboot, because the BLE stack is initialized at boot.
 - The sleep timer starts at boot and is not reset by configuration changes or reconnections. It also keeps running while the serial console is open.
 - Unsaved changes are lost on reboot. Use `save` to persist them, and `exit` (or the reset button) to reboot.
-- Defaults: period `15000`, dist `1`, sleep `480` (8 hours), name `Wobbly BLE Mouse`, manufacturer `ESP32`.
+- Defaults: period `15000`, dist `1`, sleep `480` (8 hours), pairing `60` (s), name `Wobbly BLE Mouse`, manufacturer `ESP32`.
 
 Example session:
 
