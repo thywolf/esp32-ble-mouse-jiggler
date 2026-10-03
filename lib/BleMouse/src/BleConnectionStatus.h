@@ -18,7 +18,10 @@ public:
   // a connection change (legacy advertising stops on the first connection);
   // when false the device stays hidden while it is serving hosts.
   volatile bool advertisingEnabled = true;
-  void onConnect(BLEServer* pServer);
+  // Only the param-taking overload is declared: the framework invokes both
+  // onConnect overloads for every connection, so overriding both would
+  // double-count hosts and repeat the notification/advertising setup. The
+  // 1-arg overload stays the library's no-op default.
   void onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t *param);
   void onDisconnect(BLEServer* pServer);
   BLECharacteristic* inputMouse;

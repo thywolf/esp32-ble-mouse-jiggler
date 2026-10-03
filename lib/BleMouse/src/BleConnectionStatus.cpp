@@ -3,7 +3,12 @@
 BleConnectionStatus::BleConnectionStatus(void) {
 }
 
-void BleConnectionStatus::onConnect(BLEServer* pServer)
+// arduino-esp32's BLEServer calls BOTH onConnect overloads for every new host
+// (onConnect(this) followed by onConnect(this, param)). Only this overload is
+// overridden on purpose: implementing both would run the bookkeeping twice per
+// connection, leaving connectionCount too high and the device believing it is
+// still connected after every host has left.
+void BleConnectionStatus::onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t *param)
 {
   this->connectionCount++;
   this->connected = true;
@@ -14,10 +19,6 @@ void BleConnectionStatus::onConnect(BLEServer* pServer)
   if (this->advertisingEnabled) {
     pServer->getAdvertising()->start();
   }
-}
-
-void BleConnectionStatus::onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t *param)
-{
   // Request longer connection intervals (30-50 ms) with no slave latency
   // and a 4 s supervision timeout. The stock 7.5-11.25 ms interval starves
   // the single ESP32 radio when 3+ hosts are connected, causing random drops.

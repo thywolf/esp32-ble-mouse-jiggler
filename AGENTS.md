@@ -35,6 +35,7 @@ Verified against the framework sources. These are the things that bite when you 
 - `BLEAdvertising::start()` is fully async in this core version (no blocking semaphore waits), so calling it from BLE callbacks is safe.
 - `BLEServer::getGattsIf()` is private; use the public `BLEServer::disconnect(connId)` instead (`BleMouse::disconnectAll()` does).
 - `BLEServer::updateConnParams(remote_bda, minInterval, maxInterval, latency, timeout)` is public and queues a connection-parameter update via `esp_ble_gap_update_conn_params`. It must be called from the `onConnect(BLEServer*, esp_ble_gatts_cb_param_t*)` callback (the param-taking overload), which carries `param->connect.remote_bda`. Values are in units of 1.25 ms for intervals and 10 ms for timeout. The stock 7.5–11.25 ms interval starves the single radio when 3+ hosts connect, so the fork requests 30–50 ms (min=24, max=40, latency=0, timeout=400).
+- `BLEServer::handleGATTServerEvent` invokes **both** `onConnect` overloads back to back (`onConnect(this)` then `onConnect(this, param)`), and both `onDisconnect` overloads on a disconnect. `BleConnectionStatus` therefore overrides *only* the param-taking `onConnect` and leaves the 1-arg version as the library's no-op default; implementing both would double-count `connectionCount` per host, which never falls back to 0 and leaves the app convinced it is still connected (no advertising, no movement gate, `[hosts]` stuck at 2×). Same trap for `onDisconnect`: override exactly one.
 
 ## Behavioral invariants
 

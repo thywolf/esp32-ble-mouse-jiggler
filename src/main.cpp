@@ -253,8 +253,11 @@ void setPairingMode(bool enable) {
   }
   // the advertising policy in loop() applies the change on the next iteration
   if (appState == APP_SERIAL) {
-    shell.println(enable ? "Pairing mode on - the device stays discoverable for a minute or until it is switched off again."
-                         : "Pairing mode off - the device only advertises while no host is connected and for a minute after a disconnect.");
+    if (enable) {
+      shell.printf("Pairing mode on - the device stays discoverable for %lu s or until it is switched off again.\n", pairingTimeout / 1000UL);
+    } else {
+      shell.println("Pairing mode off - the device only advertises while no host is connected and for a minute after a disconnect.");
+    }
   }
 }
 
