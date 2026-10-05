@@ -4,7 +4,7 @@ Guidance for AI coding agents working in this repository. This doc exists so tha
 
 ## Project
 
-ESP32 BLE mouse jiggler firmware: the device advertises as a BLE HID mouse, jiggles the cursor on a timer, reports a simulated battery, and enters deep sleep after a configurable time. Built with PlatformIO (Arduino framework) for the `az-delivery-devkit-v4` board (ESP32-WROOM-32). Work happens on feature branches, PRs into `main`.
+ESP32 BLE mouse jiggler firmware: the device advertises as a BLE HID mouse, jiggles the cursor on a timer, reports a simulated battery, and enters deep sleep after a configurable time. Built with PlatformIO (Arduino framework) for the `az-delivery-devkit-v4` board (ESP32-WROOM-32). The toolchain versions are pinned in `platformio.ini`; bump them deliberately.
 
 ## Commands
 
@@ -17,7 +17,7 @@ The PlatformIO CLI is not on PATH; use the penv copy:
 - Flash: `pio run -t upload` — only on explicit request; hardware is usually not attached
 - Serial monitor: `pio device monitor` (115200 baud)
 
-The build is the only automated verification; there are no unit tests (`test/` is the untouched PlatformIO template). `pio run` must pass before committing. Note that building rewrites `.vscode/extensions.json` (line endings only, no content change) — revert it instead of committing.
+The build is the only automated verification; there are no unit tests (`test/` is the untouched PlatformIO template). `pio run` must pass before committing. Note that building rewrites `.vscode/extensions.json` — not only line endings: the tooling can add entries such as `pioarduino.pioarduino-ide` to `unwantedRecommendations`. It is generated noise; revert it instead of committing.
 
 ## Layout
 
@@ -25,7 +25,21 @@ The build is the only automated verification; there are no unit tests (`test/` i
 - `src/quotedTokenizer.{h,cpp}` — `strtok_r`-compatible tokenizer honoring double quotes
 - `lib/BleMouse/` — vendored fork of t-vk/ESP32-BLE-Mouse v0.3.1 (MIT) patched for simultaneous multi-host connections. Do not re-add `t-vk/ESP32 BLE Mouse` to `lib_deps` and do not "upgrade" the fork to upstream; the patches are the point.
 
-## BLE stack facts (espressif32 6.3.2 / arduino-esp32 2.0.x, Bluedroid)
+## Code style
+
+No formatter or linter is configured (no `.editorconfig`, no `.clang-format`); match the surrounding code by hand.
+
+- 2-space indent, braces on the same line (`void setup() {`)
+- camelCase for functions and variables, SCREAMING_SNAKE_CASE for constants
+- CRLF line endings throughout (checkouts use `core.autocrlf=true`); keep new files consistent
+
+## Commits and PRs
+
+- Conventional Commits subject prefixes: `feat:`, `fix:`, `docs:` (match `git log`)
+- One logical change per feature branch, merged into `main` via PR or merge commit
+- The build must pass and `.vscode/extensions.json` noise must be reverted before committing (see Commands)
+
+## BLE stack facts (espressif32 6.3.2 → arduino-esp32 2.0.9, Bluedroid; versions pinned in `platformio.ini` — re-verify these facts before bumping)
 
 Verified against the framework sources. These are the things that bite when you assume the BLE stack works the way the spec implies:
 
