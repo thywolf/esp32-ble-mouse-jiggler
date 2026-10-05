@@ -17,7 +17,7 @@ The PlatformIO CLI is not on PATH; use the penv copy:
 - Flash: `pio run -t upload` — only on explicit request; hardware is usually not attached
 - Serial monitor: `pio device monitor` (115200 baud)
 
-The build is the only automated verification; there are no unit tests (`test/` is the untouched PlatformIO template). `pio run` must pass before committing. Note that building rewrites `.vscode/extensions.json` — not only line endings: the tooling can add entries such as `pioarduino.pioarduino-ide` to `unwantedRecommendations`. It is generated noise; revert it instead of committing.
+The build is the only automated verification; there are no unit tests (`test/` is the untouched PlatformIO template). `pio run` must pass before committing. The PlatformIO tooling manages `.vscode/extensions.json` and may add entries (e.g. `pioarduino.pioarduino-ide`) to `unwantedRecommendations`; the committed state is deliberate. If a build introduces something new, review it and either commit it deliberately or revert it — never let it ride along silently in an unrelated commit.
 
 ## Layout
 
@@ -35,9 +35,9 @@ No formatter or linter is configured (no `.editorconfig`, no `.clang-format`); m
 
 ## Commits and PRs
 
-- Conventional Commits subject prefixes: `feat:`, `fix:`, `docs:` (match `git log`)
+- Conventional Commits subject prefixes: `feat:`, `fix:`, `docs:`, `chore:` (match `git log`)
 - One logical change per feature branch, merged into `main` via PR or merge commit
-- The build must pass and `.vscode/extensions.json` noise must be reverted before committing (see Commands)
+- The build must pass before committing (see Commands)
 
 ## BLE stack facts (espressif32 6.3.2 → arduino-esp32 2.0.9, Bluedroid; versions pinned in `platformio.ini` — re-verify these facts before bumping)
 
