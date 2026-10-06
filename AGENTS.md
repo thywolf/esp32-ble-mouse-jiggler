@@ -36,7 +36,7 @@ No formatter or linter is configured (no `.editorconfig`, no `.clang-format`); m
 ## Commits and PRs
 
 - Conventional Commits subject prefixes: `feat:`, `fix:`, `docs:`, `chore:` (match `git log`)
-- One logical change per feature branch, merged into `main` via PR or merge commit
+- Small commits and tweaks go straight onto `main` — no feature branch or PR needed; use a branch + PR for larger features
 - The build must pass before committing (see Commands)
 
 ## BLE stack facts (espressif32 6.3.2 → arduino-esp32 2.0.9, Bluedroid; versions pinned in `platformio.ini` — re-verify these facts before bumping)
