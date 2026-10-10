@@ -17,6 +17,39 @@ unsigned long sleepMinutes;
 std::string mouseName;
 std::string mouseManu;
 
+// Movement profiles. Every profile keeps the net displacement *we* send
+// bounded, so the cursor stays roughly where the user left it no matter how
+// long a session runs: `random`/`pulse` cancel their accumulated residual on
+// every report (|net| <= dist in steady state), `glide` retraces each
+// outbound run with an equal and opposite return run. Every profile also
+// reports at least once per cycle, and the longest silence any of them
+// produces is max(600 ms, 1.25 x period) - far below any host's idle
+// timeout, so no machine can drift toward sleep while another one is busy.
+enum MoveMode { MODE_RANDOM, MODE_PULSE, MODE_GLIDE };
+const char *const MODE_NAMES[] = {"random", "pulse", "glide"};
+MoveMode moveMode = MODE_RANDOM;
+// Residual net offset (our own reports only) that the next random/pulse
+// report cancels. The host clamps at screen edges and the user's own
+// movements are invisible to us, so this is our contribution only - which is
+// exactly what needs to net to zero.
+int64_t netX = 0;
+int64_t netY = 0;
+// Pulse profile state: a cycle is a burst of 2-4 reports pulseStepLen ms
+// apart followed by pulseGapLen of quiet; the cycle length is jittered to
+// [0.75, 1.25] x period. pulseNextDelay is the gate value in pulse mode.
+unsigned long pulseBurstLeft = 0;
+unsigned long pulseStepLen = 300;
+unsigned long pulseGapLen = 0;
+unsigned long pulseNextDelay = 0;
+// Glide profile state: alternating outbound/return runs of glideStepsLeft
+// same-direction steps at the normal period cadence; the return run reuses
+// glideOutSteps so each out/back pair nets exactly (0, 0).
+unsigned long glideStepsLeft = 0;
+unsigned long glideOutSteps = 0;
+int glideDx = 0;
+int glideDy = 0;
+bool glideReturnNext = false;
+
 enum APPState {
   APP_BLE,
   APP_SERIAL,
@@ -96,6 +129,12 @@ int doReboot(int /*argc*/ , char ** /*argv*/);
 int doPing(int /*argc*/ , char ** /*argv*/);
 void setPairingMode(bool enable);
 void enterDeepSleep(void);
+MoveMode modeFromName(const char *name);
+void resetMoveProfile();
+void armPulseCycle();
+void armGlideRun();
+unsigned long glideAmp();
+int correctAxis(int sample, int64_t net);
 
 void setup() {
   // every timer (movement, sleep) is counted from this point
@@ -184,18 +223,45 @@ void loop() {
       break;
     case APP_BLE: // serial is switched off, mouse is updating
       if(bleMouse->isConnected()) {
-          if (millis() - previousMillis >= period) {
+          // random and glide read `period` live so `set period` applies at
+          // once; pulse carries its own gate through the burst/gap cycle
+          unsigned long due = moveMode == MODE_PULSE ? pulseNextDelay : period;
+          if (millis() - previousMillis >= due) {
+            if (moveMode == MODE_PULSE && pulseBurstLeft == 0) {
+              armPulseCycle();
+            } else if (moveMode == MODE_GLIDE && glideStepsLeft == 0) {
+              armGlideRun();
+            }
             bleMouse->setBatteryLevel(getBatteryLevel());
             int x;
             int y;
-            do {
-              // rejection-resampling: a (0, 0) report would move nothing,
-              // so redraw until at least one axis is non-zero
-              x = randomSignedOffset(moveDist);
-              y = randomSignedOffset(moveDist);
-            } while (x == 0 && y == 0);
+            if (moveMode == MODE_GLIDE) {
+              // same-direction step; never (0, 0): the heading is never
+              // (0, 0) and the amplitude is at least 1. The equal-length
+              // return run cancels it, so no correction is needed here.
+              x = glideDx * (int)glideAmp();
+              y = glideDy * (int)glideAmp();
+            } else {
+              // cancel our accumulated residual on every report so the net
+              // displacement we send stays bounded (|net| <= dist in steady
+              // state) and the cursor is roughly where the user left it.
+              // Redraw until at least one axis of the corrected report is
+              // non-zero: a (0, 0) report would move nothing.
+              do {
+                x = correctAxis(randomSignedOffset(moveDist), netX);
+                y = correctAxis(randomSignedOffset(moveDist), netY);
+              } while (x == 0 && y == 0);
+            }
             bleMouse->move(x, y);
+            netX += x;
+            netY += y;
             previousMillis = millis();
+            if (moveMode == MODE_PULSE) {
+              pulseBurstLeft--;
+              pulseNextDelay = pulseBurstLeft > 0 ? pulseStepLen : pulseGapLen;
+            } else if (moveMode == MODE_GLIDE) {
+              glideStepsLeft--;
+            }
           }
         }
       break;
@@ -220,6 +286,85 @@ void loop() {
 int randomSignedOffset(int dist) {
   // random value in [-dist, dist], inclusive
   return (int)random(2 * dist + 1) - dist;
+}
+
+MoveMode modeFromName(const char *name) {
+  if (strcmp(name, "pulse") == 0) {
+    return MODE_PULSE;
+  }
+  if (strcmp(name, "glide") == 0) {
+    return MODE_GLIDE;
+  }
+  // unknown values (including a corrupt NVS read) fall back to the legacy profile
+  return MODE_RANDOM;
+}
+
+void resetMoveProfile() {
+  // zeroed state re-arms on the next report, so a mode switch starts clean
+  pulseBurstLeft = 0;
+  pulseNextDelay = 0;
+  glideStepsLeft = 0;
+  glideReturnNext = false;
+}
+
+void armPulseCycle() {
+  // one cycle: a burst of 2-4 nudges 300-600 ms apart, then a quiet gap
+  // that fills out a cycle length jittered to [0.75, 1.25] x period
+  pulseStepLen = 300 + random(301);
+  unsigned long cycleLen = period / 4 * 3 + random(period / 2 + 1);
+  unsigned long n = 2 + random(3);
+  if ((n - 1) * pulseStepLen >= cycleLen) {
+    // period too short to fit a burst: one report per jittered cycle
+    n = 1;
+    pulseGapLen = cycleLen;
+  } else {
+    pulseGapLen = cycleLen - (n - 1) * pulseStepLen;
+    if (pulseGapLen < 50) {
+      pulseGapLen = 50;
+    }
+  }
+  pulseBurstLeft = n;
+}
+
+void armGlideRun() {
+  if (!glideReturnNext) {
+    // fresh heading: a direction in {-1, 0, 1}^2, never (0, 0)
+    do {
+      glideDx = (int)random(3) - 1;
+      glideDy = (int)random(3) - 1;
+    } while (glideDx == 0 && glideDy == 0);
+    glideReturnNext = true;
+    glideOutSteps = 6 + random(10); // 6-15 steps outbound at the period cadence
+    glideStepsLeft = glideOutSteps;
+  } else {
+    // retrace the outbound path back with the same step count, so the
+    // out/back pair nets exactly (0, 0) on both axes
+    glideDx = -glideDx;
+    glideDy = -glideDy;
+    glideReturnNext = false;
+    glideStepsLeft = glideOutSteps;
+  }
+}
+
+unsigned long glideAmp() {
+  // per-axis step size: at least 1 px (moveDist >= 1), at most moveDist
+  unsigned long amp = (unsigned long)moveDist / 4;
+  return amp < 1 ? 1 : amp;
+}
+
+int correctAxis(int sample, int64_t net) {
+  // cancel the accumulated residual, capped at +/- dist so one report can
+  // never overshoot: net after this report equals the sampled offset whenever
+  // |sample - net| <= dist, so |net| stays <= dist in steady state, and any
+  // larger residual (e.g. an interrupted glide run) shrinks by dist per report
+  int64_t v = (int64_t)sample - net;
+  if (v > moveDist) {
+    return moveDist;
+  }
+  if (v < -(int64_t)moveDist) {
+    return -moveDist;
+  }
+  return (int)v;
 }
 
 void enterDeepSleep(void) {
@@ -276,6 +421,9 @@ int loadPreferences(int /*argc*/ , char ** /*argv*/) {
   if (pairingTimeout < 5000UL || pairingTimeout > 600000UL) {
     pairingTimeout = ADVERTISE_GRACE_MS;
   }
+  // unknown mode strings fall back to the legacy profile
+  moveMode = modeFromName(preferences.getString("mode", "random").c_str());
+  resetMoveProfile();
   mouseName = std::string(preferences.getString("name", "Wobbly BLE Mouse").c_str());
   mouseManu = std::string(preferences.getString("manu", "ESP32").c_str());
   return EXIT_SUCCESS;
@@ -286,6 +434,7 @@ int savePreferences(int /*argc*/ , char ** /*argv*/) {
   preferences.putUChar("dist", (uint8_t)moveDist);
   preferences.putULong("sleep", sleepMinutes);
   preferences.putULong("pairing", pairingTimeout / 1000UL);
+  preferences.putString("mode", MODE_NAMES[moveMode]);
   preferences.putString("name", mouseName.c_str());
   preferences.putString("manu", mouseManu.c_str());
   return EXIT_SUCCESS;
@@ -311,6 +460,7 @@ int getConfig(int /*argc*/ , char ** /*argv*/) {
   shell.println();
   shell.printf("Movement [period]: %lu ms\n", period);
   shell.printf("Movement [dist]: %d px\n", moveDist);
+  shell.printf("Movement [mode]: %s\n", MODE_NAMES[moveMode]);
   shell.printf("Deep [sleep]: %lu min\n", sleepMinutes);
   shell.printf("Mouse [name]: %s\n", mouseName.c_str());
   shell.printf("Mouse [manu]facturer: %s\n", mouseManu.c_str());
@@ -364,6 +514,15 @@ int setConfig(int argc, char **argv)
       } else {
         shell.printf("Invalid dist '%s'. Allowed values: 1-127 px.\n", argv[2]);
       }
+    } else if (strcmp(argv[1], "mode") == 0) {
+      if (strcmp(argv[2], "random") == 0 || strcmp(argv[2], "pulse") == 0
+          || strcmp(argv[2], "glide") == 0) {
+        moveMode = modeFromName(argv[2]);
+        resetMoveProfile();
+        return EXIT_SUCCESS;
+      } else {
+        shell.printf("Invalid mode '%s'. Allowed values: random, pulse, glide.\n", argv[2]);
+      }
     } else if (strcmp(argv[1], "sleep") == 0) {
       unsigned long value;
       if (parseUnsigned(argv[2], value) && value >= 5 && value <= 43200) {
@@ -404,6 +563,7 @@ int setConfig(int argc, char **argv)
   shell.println("Parameters:");
   shell.println("  period - Time between movements (in ms, 100-60000)");
   shell.println("    dist - Max distance per axis (in px, 1-127)");
+  shell.println("    mode - Movement profile: random, pulse or glide");
   shell.println("   sleep - Time until deep sleep (in minutes, 5-43200)");
   shell.println(" pairing - Pairing mode duration (in seconds, 5-600)");
   shell.println("    name - Advertised device name (string, 3-29 chars)");

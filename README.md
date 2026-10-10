@@ -6,10 +6,24 @@ Written for the AZ-Delivery DevKit V4 (ESP32-WROOM-32) using PlatformIO, with a 
 
 ## How it works
 
-- Emulates a standard BLE HID mouse. Every `period` milliseconds it moves the cursor by a random offset in `±dist` pixels on each axis. A (0, 0) report is never sent: if both axes come up 0, the offsets are redrawn until at least one axis moves, so every report moves the cursor.
+- Emulates a standard BLE HID mouse. Every `period` milliseconds it moves the cursor by an offset on each axis, bounded by `±dist` px, corrected so the jiggle's own net displacement stays near zero — see Movement profiles. A (0, 0) report is never sent: if both axes come up 0, the offsets are redrawn until at least one axis moves, so every report moves the cursor.
 - Reports a simulated battery level that drains linearly from 100% at boot to 0% when the sleep timer runs out.
 - After `sleep` minutes (default 480 = 8 hours, counted from boot) it disconnects all hosts and enters deep sleep. Wake it by pressing the **Boot** (or EN/reset) button or re-plugging USB power.
 - Once flashed and configured, the device only needs power — any USB port or power bank works. (Note: many power banks cut their output below a current threshold, which can end a session early.)
+
+## Movement profiles
+
+`set mode` chooses how the cursor is nudged (default `random`):
+
+- `random` — one random offset per `period`, each report canceling the residual of the previous ones.
+- `pulse` — short bursts of 2–4 nudges 300–600 ms apart followed by a quiet gap; each cycle is jittered to 0.75–1.25 × `period`. Same residual cancellation as `random`.
+- `glide` — the cursor walks a short path in one direction and then retraces it: 6–15 steps per run at the normal `period` cadence, each step up to `dist / 4` px (at least 1 px). The return run always uses the same number of steps as the outbound run, so each out/back pair nets exactly zero.
+
+The profiles only change *how* the movement looks, never *whether* it happens. Every profile reports at least once per cycle, and the longest silence any of them produces is max(600 ms, 1.25 × `period`) — orders of magnitude below any host's idle timeout. Keeping every machine awake while you work on the others is the point, so a profile that could risk an idle timeout would be a bug.
+
+### No drift
+
+Each profile keeps the net displacement *it* sends bounded on both axes: `random` and `pulse` cancel their accumulated residual on every report (our own contribution never moves the cursor more than about `dist` px from where it started), and `glide` nets exactly zero over every out/back pair. Leave the mouse in a corner of the screen and come back after 1, 2 or 6 hours — it is still roughly where you parked it, plus whatever you did with it yourself. (Only the host's screen-edge clamping can shift this, and only if the cursor was already within `dist` px of an edge.) A plain zero-*average* offset would not be enough: that still lets the cursor random-walk ≈ 25 × `dist` px over a workday.
 
 ## Multi-host support
 
@@ -70,6 +84,7 @@ Configurable parameters:
 ```
   period  - Time between movements (in ms, 100-60000)
     dist  - Max movement distance per axis (in px, 1-127)
+    mode  - Movement profile: random, pulse or glide
    sleep  - Time until deep sleep (in minutes, 5-43200)
  pairing  - Pairing mode duration (in seconds, 5-600)
     name  - Advertised device name (string, 3-29 chars)
@@ -78,10 +93,10 @@ Configurable parameters:
 
 Notes:
 
-- `set period ...`, `set dist ...`, `set sleep ...` and `set pairing ...` take effect immediately; `set name ...` and `set manu ...` only apply after a reboot, because the BLE stack is initialized at boot.
+- `set period ...`, `set dist ...`, `set mode ...`, `set sleep ...` and `set pairing ...` take effect immediately; `set name ...` and `set manu ...` only apply after a reboot, because the BLE stack is initialized at boot.
 - The sleep timer starts at boot and is not reset by configuration changes or reconnections. It also keeps running while the serial console is open.
 - Unsaved changes are lost on reboot. Use `save` to persist them, and `exit` (or the reset button) to reboot.
-- Defaults: period `15000`, dist `1`, sleep `480` (8 hours), pairing `60` (s), name `Wobbly BLE Mouse`, manufacturer `ESP32`.
+- Defaults: period `15000`, dist `1`, mode `random`, sleep `480` (8 hours), pairing `60` (s), name `Wobbly BLE Mouse`, manufacturer `ESP32`.
 
 Example session:
 
